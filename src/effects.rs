@@ -161,6 +161,62 @@ pub fn either<E: Clone + Debug + 'static, T, A: 'static>() -> Handler<Throws<E>,
     })
 }
 
+// EMIT: values given out one at a time — a generator (`k` kept in the answer, the next step) or a collection
+
+#[derive(Clone, Debug)]
+pub enum Emit<W> {
+    Value(W, Reply<()>),
+}
+impl<W: Clone + Debug + 'static> Effect for Emit<W> {
+    type Kind = Plain;
+}
+
+pub fn emit<W: Clone + Debug + 'static, R: Member<Emit<W>, Ix>, Ix>(w: W) -> Eff<R, ()> {
+    perform(|r| Emit::Value(w, r))
+}
+
+/// A GENERATOR: the next value and the rest — the body's `k`, kept, resumed when pulled (again and again: each pull
+/// its own) — or done
+pub enum Gen<W, T> {
+    Done,
+    Next(W, std::rc::Rc<dyn Fn() -> Eff<T, Gen<W, T>>>),
+}
+
+impl<W: Clone, T> Clone for Gen<W, T> {
+    fn clone(&self) -> Self {
+        match self {
+            Gen::Done => Gen::Done,
+            Gen::Next(w, rest) => Gen::Next(w.clone(), rest.clone()),
+        }
+    }
+}
+
+impl<W: Debug, T> Debug for Gen<W, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Gen::Done => f.write_str("Done"),
+            Gen::Next(w, _) => write!(f, "Next({w:?}, _)"),
+        }
+    }
+}
+
+/// the body as a lazy generator: each value given back with the rest of the program, not resumed until pulled
+pub fn generate<W: Clone + Debug + 'static, T: 'static, A: 'static>() -> Handler<Emit<W>, T, A, Gen<W, T>> {
+    Handler::deep(|_| pure(Gen::Done), |op, k| match op {
+        Emit::Value(w, r) => pure(Gen::Next(w, std::rc::Rc::new(move || r.resume(&k, ())))),
+    })
+}
+
+/// every value emitted, in order, and the body's value
+pub fn collect_emitted<W: Clone + Debug + 'static, T, A: 'static>() -> Handler<Emit<W>, T, A, (Vec<W>, A)> {
+    Handler::stateful(Vec::new(), |s: &mut Vec<W>, op| match op {
+        Emit::Value(w, r) => {
+            s.push(w);
+            r.give(())
+        }
+    }, |s, a| (s, a))
+}
+
 // OVER THE WIRE: the standard effects' operations by name, their arguments a record
 
 use crate::data::{Data, IsData};
