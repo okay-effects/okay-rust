@@ -83,7 +83,7 @@ class TestOkayRustWire extends munit.FunSuite {
     Files.createDirectories(dir.resolve("src")): Unit
     Files.writeString(dir.resolve("Cargo.toml"),
       s"[package]\nname = \"worker\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nokay = { path = \"okay\" }\n" +
-      s"okay-effects = { path = \"$okayRust\" }\nokay-shop = { path = \"$okayRust/examples/shop\" }\n"): Unit
+      s"okay-effects = { path = \"$okayRust/effects\" }\nokay-shop = { path = \"$okayRust/examples/shop\" }\n"): Unit
     Files.writeString(dir.resolve("src").resolve("main.rs"), main): Unit
     ForeignWorker.speaking(Seq(RustWorker.build(dir).toString))
   private given okay.Answers[ForeignEval] = w.handler
