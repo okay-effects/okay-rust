@@ -126,6 +126,11 @@ impl<R, T, O, X, B> Bind<Eff<R, B>> for Cont<R, T, O, X> {
     type Out = Cont<R, T, O, B>;
 }
 
+/// `p`, made when the run gets to it
+pub fn defer_c<R: 'static, I: 'static, O: 'static, A: 'static>(p: impl Fn() -> Cont<R, I, O, A> + 'static) -> Cont<R, I, O, A> {
+    Cont::of(Kind::Defer(Rc::new(move || p().node)))
+}
+
 /// `a` under any `$`, at any answers
 pub fn pure_c<R, S, A: 'static>(a: A) -> Cont<R, S, S, A> {
     Cont::of(Kind::Return(Val::new(a)))

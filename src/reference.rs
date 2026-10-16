@@ -1,7 +1,9 @@
 //! THE MACHINE AGAINST ONE REFERENCE — okay-core's TestReference: random programs run by the machine, with all it does
 //! for speed, and by their meaning — normal forms, each node by its rule, nothing clever: the same answers required.
 //! Rows are types here, so a random program's handlers are installed by `intercept` (the row kept, the effect
-//! handled), over one row of four effects. The programs of control (shift0, `$`) wait for stage 2.
+//! handled), over one row of four effects. Control: shift0 and `$` as in the calculus — a shift0 not yet at its `$`
+//! a normal form of its own, taking each handler it passes into its rest; the effects in it answered by the handlers
+//! around, out past the `$`s.
 
 use std::rc::Rc;
 
@@ -16,6 +18,8 @@ use crate::{row, Eff, Handler, Step};
 enum Norm {
     Done(Val),
     Op(Op, Rc<dyn Fn(Val) -> Norm>),
+    /// a shift0 not under a `$` in the program yet: its body, its rest
+    Shifted(Rc<dyn Fn(K0) -> Node>, Rc<dyn Fn(Val) -> Norm>),
 }
 
 fn shared(mut f: Frame) -> Rc<Frame> {
@@ -39,6 +43,7 @@ fn norm(n: Node) -> Norm {
         Kind::Handle(body, level) => handled(level, norm(*body)),
         Kind::Resume(k, v) => norm(k.call_fn(v)),
         Kind::Defer(p) => norm(p()),
+        Kind::Shift0(f) => Norm::Shifted(f, Rc::new(Norm::Done)),
         _ => panic!("a node no program written here makes"),
     }
 }
@@ -47,6 +52,7 @@ fn bind(n: Norm, f: Rc<dyn Fn(Val) -> Norm>) -> Norm {
     match n {
         Norm::Done(x) => f(x),
         Norm::Op(op, k) => Norm::Op(op, Rc::new(move |y| bind(k(y), f.clone()))),
+        Norm::Shifted(s, k) => Norm::Shifted(s, Rc::new(move |y| bind(k(y), f.clone()))),
     }
 }
 
@@ -55,6 +61,7 @@ fn reify(n: Norm) -> Node {
     match n {
         Norm::Done(v) => Node(Kind::Return(v)),
         Norm::Op(op, k) => Node(Kind::Inject(op, Frame::new(move |x| reify(k(x))))),
+        Norm::Shifted(s, k) => Node(Kind::Bind(Box::new(Node(Kind::Shift0(s))), Frame::new(move |x| reify(k(x))))),
     }
 }
 
@@ -65,7 +72,16 @@ fn handled(level: Level, n: Norm) -> Norm {
         return stated(e, rt, s, n);
     }
     match n {
+        // a `$`: the shift0 its own, given its rest with the `$` put back; another level taken into the rest
+        Norm::Shifted(f, k) => match &level {
+            Level::Dollar(_) => {
+                let again = level.clone();
+                norm(f(K0::of_fn(move |y| reify(handled(again.clone(), k(y))))))
+            }
+            _ => Norm::Shifted(f, Rc::new(move |y| handled(level.clone(), k(y)))),
+        },
         Norm::Done(v) => match &level {
+            Level::Dollar(ret) => norm(ret(v)),
             Level::Answering(_, rt) => Norm::Done((rt.ret)(v)),
             Level::Deep(_, rt) => norm((rt.ret)(v)),
             Level::Aborting(_, rt) => norm((rt.ret)(v)),
@@ -102,6 +118,7 @@ fn stated(e: std::any::TypeId, rt: Rc<StatefulRt>, s: Rc<dyn std::any::Any>, n: 
             stated(e, rt, s2, k(v))
         }
         Norm::Op(op, k) => Norm::Op(op, Rc::new(move |x| stated(e, rt.clone(), s.clone(), k(x)))),
+        Norm::Shifted(f, k) => Norm::Shifted(f, Rc::new(move |x| stated(e, rt.clone(), s.clone(), k(x)))),
     }
 }
 
@@ -110,6 +127,7 @@ fn value<A: 'static>(p: Eff<crate::Nil, A>) -> A {
     match norm(p.node) {
         Norm::Done(v) => v.take::<A>(),
         Norm::Op(..) => panic!("an operation not handled"),
+        Norm::Shifted(..) => panic!("a shift0 with no $ around"),
     }
 }
 
@@ -340,4 +358,253 @@ fn deeper_random_programs_the_machine_as_the_meaning() {
         let p = random(&mut r, 6);
         assert_eq!(closed(&p).run(), value(closed(&p)), "program {i}");
     }
+}
+
+// CONTROL: random programs of shift0 and `$` under a `$` over `CR`, effects out of them past the `$`s, handlers under the
+// `$`s (of `Reader<i32>` and `State<i64>`, which take a shift0 passing them into its rest)
+
+use crate::cont::{defer_c, dollar, pure_c, shift0, Passing};
+use crate::{Cons, Cont, Delim};
+
+type CR = row![Choose, Reader<i64>];
+type L = Eff<CR, i64>;
+/// a program under the `$` over `CR`, its answers `L`
+type B = Cont<Delim<CR>, L, L, i64>;
+type Q = Cons<Reader<i32>, Cons<State<i64>, Delim<CR>>>;
+type BQ = Cont<Q, L, L, i64>;
+
+enum C {
+    Ret(i64),
+    Map(i64, Rc<C>),
+    Seq(i64, Rc<C>, Rc<C>),
+    Shift(u8, i64, Rc<C>),
+    Inner(u8, i64, Rc<C>),
+    Defer(i64, Rc<C>),
+    Ask(i64, Rc<C>),
+    Flip(i64, Rc<C>, Rc<C>),
+    Under(u8, i64, Rc<U>),
+    Sum(Rc<C>, Rc<C>),
+}
+
+enum U {
+    Ret(i64),
+    Ask(Rc<U>),
+    Get(Rc<U>),
+    Put(i64, Rc<U>),
+    Flip(i64, Rc<U>, Rc<U>),
+    Shift(u8, i64, Rc<U>),
+    Inner(u8, i64, Rc<U>),
+    Defer(i64, Rc<U>),
+    Seq(i64, Rc<U>, Rc<U>),
+    Sum(Rc<U>, Rc<U>),
+}
+
+fn random_c(r: &mut Rand, depth: u32) -> Rc<C> {
+    let c = r.next(5);
+    if depth == 0 {
+        return Rc::new(C::Ret(c));
+    }
+    let d = depth - 1;
+    Rc::new(match r.next(14) {
+        0 => C::Ret(c),
+        1 => C::Map(c, random_c(r, d)),
+        2 => C::Seq(c, random_c(r, d), random_c(r, d)),
+        3 => C::Shift(r.next(5) as u8, c, random_c(r, d)),
+        4 => C::Inner(r.next(3) as u8, c, random_c(r, d)),
+        5 => C::Defer(c, random_c(r, d)),
+        6 | 7 => C::Ask(c, random_c(r, d)),
+        8 => C::Flip(c, random_c(r, d), random_c(r, d)),
+        9..=12 => C::Under(r.next(3) as u8, c, random_u(r, d)),
+        _ => C::Sum(random_c(r, d), random_c(r, d)),
+    })
+}
+
+fn random_u(r: &mut Rand, depth: u32) -> Rc<U> {
+    let c = r.next(5);
+    if depth == 0 {
+        return Rc::new(U::Ret(c));
+    }
+    let d = depth - 1;
+    Rc::new(match r.next(10) {
+        0 => U::Ret(c),
+        1 => U::Ask(random_u(r, d)),
+        2 => U::Get(random_u(r, d)),
+        3 => U::Put(c, random_u(r, d)),
+        4 => U::Flip(c, random_u(r, d), random_u(r, d)),
+        5 => U::Shift(r.next(4) as u8, c, random_u(r, d)),
+        6 => U::Inner(r.next(3) as u8, c, random_u(r, d)),
+        7 => U::Defer(c, random_u(r, d)),
+        8 => U::Seq(c, random_u(r, d), random_u(r, d)),
+        _ => U::Sum(random_u(r, d), random_u(r, d)),
+    })
+}
+
+fn sh_b(f: impl Fn(crate::K1<i64, L>) -> L + 'static) -> B {
+    shift0::<Delim<CR>, CR, _, i64, L, L>(f)
+}
+
+fn twice_k(k: crate::K1<i64, L>, c: i64) -> L {
+    let k2 = k.clone();
+    k(c).flat_map(move |a| k2(a + 1).map(move |b| b + a))
+}
+
+fn build_c(p: &Rc<C>) -> B {
+    match &**p {
+        C::Ret(c) => pure_c(*c),
+        C::Map(c, b) => { let c = *c; build_c(b).map(move |x| x * 3 + c) }
+        C::Seq(c, l, rr) => {
+            let (c, rr) = (*c, rr.clone());
+            build_c(l).flat_map(move |x| if x % 2 == 0 { build_c(&rr).map(move |y| y + x) } else { pure_c(x - c) })
+        }
+        C::Shift(how, c, inner) => {
+            let (c, inner) = (*c, inner.clone());
+            match how {
+                0 => sh_b(move |_| crate::pure(c)).flat_map(move |_| build_c(&inner)),
+                1 => sh_b(move |k| k(c)).flat_map(move |x| build_c(&inner).map(move |y| y + x)),
+                2 => sh_b(move |k| { let k2 = k.clone(); k(c).flat_map(move |a| k2(a)) }).flat_map(move |x| build_c(&inner).map(move |y| y * x)),
+                3 => sh_b(move |k| twice_k(k, c)).flat_map(move |x| build_c(&inner).map(move |y| y - x)),
+                _ => sh_b(move |k| dollar(build_c(&inner), crate::pure).flat_map(move |x| k(x))).map(move |x| x + c),
+            }
+        }
+        C::Inner(how, c, after) => {
+            let (c, after) = (*c, after.clone());
+            let inner: Cont<Delim<Delim<CR>>, B, B, i64> = match how {
+                0 => pure_c(c),
+                1 => shift0::<Delim<Delim<CR>>, Delim<CR>, _, i64, B, B>(move |k| { let k2 = k.clone(); k(c).flat_map(move |a| k2(a)) }).map(|x| x + 1),
+                _ => shift0::<Delim<Delim<CR>>, Delim<CR>, _, i64, B, B>(move |k| { let k2 = k.clone(); k(c).flat_map(move |a| k2(a * 2)) }),
+            };
+            dollar(inner, move |a| pure_c(a + c)).flat_map(move |x| build_c(&after).map(move |y| y + x))
+        }
+        C::Defer(c, inner) => { let (c, inner) = (*c, inner.clone()); defer_c(move || build_c(&inner)).map(move |x| x + c) }
+        C::Ask(c, after) => {
+            let (c, after) = (*c, after.clone());
+            ask::<i64, Delim<CR>, _>().cont::<L>().flat_map(move |n| build_c(&after).map(move |y| y * n + c))
+        }
+        C::Flip(c, l, rr) => {
+            let (c, l, rr) = (*c, l.clone(), rr.clone());
+            flip::<Delim<CR>, _>().cont::<L>().flat_map(move |b| if b { build_c(&l) } else { build_c(&rr).map(move |y| y + c) })
+        }
+        C::Under(how, c, u) => {
+            let (c, c32) = (*c, *c as i32);
+            fn reading<T>(c: i32) -> Passing<Reader<i32>, T, i64, i64> {
+                Passing::answering(move |op: Reader<i32>| match op { Reader::Ask(r) => r.give(c) }, |a| a)
+            }
+            fn stating<T>(c: i64) -> Passing<State<i64>, T, i64, (i64, i64)> {
+                Passing::stateful(c, |s: &mut i64, op: State<i64>| match op {
+                    State::Get(r) => r.give(*s),
+                    State::Put(n, r) => { *s = n; r.give(()) }
+                }, |s, a| (s, a))
+            }
+            match how {
+                0 => build_u(u).handle(reading(c32)).handle(stating(c)).map(|(_, a)| a),
+                1 => build_u(u)
+                    .handle(Passing::translating(|op: Reader<i32>| match op {
+                        Reader::Ask(r) => get::<i64, Cons<State<i64>, Delim<CR>>, _>()
+                            .flat_map(|s| put::<i64, Cons<State<i64>, Delim<CR>>, _>(s + 1).map(move |_| s))
+                            .map(move |s| r.give(s as i32)),
+                    }))
+                    .handle(stating(c))
+                    .map(|(_, a)| a),
+                // the state taken from past the head, the reader outside it
+                _ => build_u(u).handle(stating(c)).map(|(_, a)| a).handle(reading(c32)),
+            }
+        }
+        C::Sum(l, rr) => { let rr = rr.clone(); build_c(l).flat_map(move |x| build_c(&rr).map(move |y| y + x)) }
+    }
+}
+
+fn sh_u(f: impl Fn(crate::K1<i64, L>) -> L + 'static) -> BQ {
+    shift0::<Q, CR, _, i64, L, L>(f)
+}
+
+fn build_u(p: &Rc<U>) -> BQ {
+    match &**p {
+        U::Ret(c) => pure_c(*c),
+        U::Ask(rest) => { let rest = rest.clone(); ask::<i32, Q, _>().cont::<L>().flat_map(move |n| build_u(&rest).map(move |x| x + n as i64)) }
+        U::Get(rest) => { let rest = rest.clone(); get::<i64, Q, _>().cont::<L>().flat_map(move |n| build_u(&rest).map(move |x| x * 2 + n)) }
+        U::Put(c, rest) => { let rest = rest.clone(); put::<i64, Q, _>(*c).cont::<L>().flat_map(move |_| build_u(&rest)) }
+        U::Flip(c, l, rr) => {
+            let (c, l, rr) = (*c, l.clone(), rr.clone());
+            flip::<Q, _>().cont::<L>().flat_map(move |b| if b { build_u(&l) } else { build_u(&rr).map(move |x| x + c) })
+        }
+        U::Shift(how, c, inner) => {
+            let (c, inner) = (*c, inner.clone());
+            match how {
+                0 => sh_u(move |_| crate::pure(c)).flat_map(move |_| build_u(&inner)),
+                1 => sh_u(move |k| k(c)).flat_map(move |x| build_u(&inner).map(move |y| y + x)),
+                2 => sh_u(move |k| { let k2 = k.clone(); k(c).flat_map(move |a| k2(a)) }).flat_map(move |x| build_u(&inner).map(move |y| y * x)),
+                _ => sh_u(move |k| twice_k(k, c)).flat_map(move |x| build_u(&inner).map(move |y| y - x)),
+            }
+        }
+        U::Inner(how, c, after) => {
+            let (c, after) = (*c, after.clone());
+            let inner: Cont<Delim<Q>, BQ, BQ, i64> = match how {
+                0 => pure_c(c),
+                1 => shift0::<Delim<Q>, Q, _, i64, BQ, BQ>(move |k| { let k2 = k.clone(); k(c).flat_map(move |a| k2(a)) }).map(|x| x + 1),
+                _ => get::<i64, Delim<Q>, _>().cont::<BQ>().flat_map(move |n| {
+                    shift0::<Delim<Q>, Q, _, i64, BQ, BQ>(move |k| { let k2 = k.clone(); k(c + n).flat_map(move |a| k2(a * 2)) })
+                }),
+            };
+            dollar(inner, move |a| pure_c(a + c)).flat_map(move |x| build_u(&after).map(move |y| y + x))
+        }
+        U::Defer(c, inner) => { let (c, inner) = (*c, inner.clone()); defer_c(move || build_u(&inner)).map(move |x| x + c) }
+        U::Seq(c, l, rr) => {
+            let (c, rr) = (*c, rr.clone());
+            build_u(l).flat_map(move |x| if x % 2 == 0 { build_u(&rr).map(move |y| y + x) } else { pure_c(x - c) })
+        }
+        U::Sum(l, rr) => { let rr = rr.clone(); build_u(l).flat_map(move |x| build_u(&rr).map(move |y| y + x)) }
+    }
+}
+
+fn controlled(p: &Rc<C>) -> Eff<crate::Nil, Vec<i64>> {
+    dollar(build_c(p), crate::pure).handle(all()).handle(reader(5))
+}
+
+#[test]
+fn control_random_programs_of_shift0_and_dollar_effects_out_past_the_dollars_handlers_under_them() {
+    let mut r = Rand(23);
+    for i in 1..=1500 {
+        let p = random_c(&mut r, 4);
+        assert_eq!(controlled(&p).run(), value(controlled(&p)), "program {i}");
+    }
+}
+
+#[test]
+fn control_random_programs_are_not_trivial() {
+    let mut r = Rand(23);
+    let answers: std::collections::HashSet<String> =
+        (0..1500).map(|_| format!("{:?}", controlled(&random_c(&mut r, 4)).run())).collect();
+    eprintln!("{} distinct answers of 1500", answers.len());
+    assert!(answers.len() > 200);
+}
+
+#[test]
+fn control_random_programs_use_every_kind_of_node() {
+    fn kinds(c: &C, seen: &mut [bool; 10]) {
+        let (i, kids): (usize, Vec<&C>) = match c {
+            C::Ret(_) => (0, vec![]),
+            C::Map(_, b) => (1, vec![b]),
+            C::Seq(_, a, b) => (2, vec![a, b]),
+            C::Shift(_, _, b) => (3, vec![b]),
+            C::Inner(_, _, b) => (4, vec![b]),
+            C::Defer(_, b) => (5, vec![b]),
+            C::Ask(_, b) => (6, vec![b]),
+            C::Flip(_, a, b) => (7, vec![a, b]),
+            C::Under(..) => (8, vec![]),
+            C::Sum(a, b) => (9, vec![a, b]),
+        };
+        seen[i] = true;
+        kids.into_iter().for_each(|k| kinds(k, seen));
+    }
+    let mut r = Rand(23);
+    let mut seen = [false; 10];
+    let mut lengths = 0usize;
+    for _ in 0..1500 {
+        let p = random_c(&mut r, 4);
+        kinds(&p, &mut seen);
+        lengths += controlled(&p).run().len();
+    }
+    eprintln!("paths in all: {lengths}");
+    assert!(seen.iter().all(|s| *s), "{seen:?}");
+    assert!(lengths > 1500, "choices branch: {lengths} paths");
 }
