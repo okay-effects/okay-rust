@@ -115,7 +115,7 @@ pub enum Reply<R, A> {
     Raise(Box<dyn Any + Send>),
 }
 
-struct Dead(Rc<Cell<bool>>);
+pub(crate) struct Dead(pub(crate) Rc<Cell<bool>>);
 impl Drop for Dead {
     fn drop(&mut self) {
         self.0.set(false);
@@ -175,7 +175,7 @@ where
     handle(r, |op| std::future::ready(Reply::Resume(f(op))), body).await
 }
 
-struct Unpark(std::thread::Thread);
+pub(crate) struct Unpark(pub(crate) std::thread::Thread);
 impl Wake for Unpark {
     fn wake(self: Arc<Self>) {
         self.0.unpark();

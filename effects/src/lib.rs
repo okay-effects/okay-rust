@@ -51,11 +51,15 @@ mod core;
 mod data;
 mod kernel;
 mod middleware;
+mod par;
 mod paths;
+mod stream;
 pub mod wire;
 
 pub use crate::core::{answering, handle, run, Cap, Op, Reply, Run};
 pub use crate::data::{camel, snake, Data, IsData, Operation};
 pub use crate::kernel::{start, Asked, Computation, Host, Step};
 pub use crate::middleware::{drive, only, record, replay, with, Answerer, Entry, Middleware, Routes};
+pub use crate::par::{all, par, race};
 pub use crate::paths::every_path;
+pub use crate::stream::{stream, Emit, Stream};
