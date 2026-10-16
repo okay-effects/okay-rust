@@ -237,6 +237,8 @@ pub type At<R, S, F> = Rc<dyn Fn(S) -> Eff<R, F>>;
 /// a program answering the rest of the run at the state `S`
 pub type P<R, S, F> = Eff<R, At<R, S, F>>;
 
+// the answers in these types are the point: a state's type before and after each step
+#[allow(clippy::type_complexity)]
 impl<R: 'static, F: 'static> PState<R, F> {
     /// the state, its type `S` unchanged: `shift0(k => s => k(s)(s))`
     pub fn get<S: Clone + 'static>(&self) -> Cont<Delim<R>, P<R, S, F>, P<R, S, F>, S> {
