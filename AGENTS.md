@@ -65,5 +65,12 @@ Two crates in one workspace: the root `okay` (okay-core's kernel ported — what
 - `Reply::Abort` drops the body (destructors run); `Reply::Raise` and `Computation::fail` are panics at the operation.
 - `start`/`Computation`: the kernel's protocol (`Step::{Done, Yielded(Asked), Failed, Cancelled}`); `drive` with an
   `Answerer`, `with`/`only`/`Routes`/`record`/`replay`; `every_path` by replay; `wire::{remote, serve}`.
+- Branches (`par.rs`): `all`/`par`/`race` poll their branches round-robin in one run, one mailbox; an operation
+  left in it past the branches locks them to the branch that performed it until answered (one at a time, no
+  lending). A branch's panic drops the others. Not `join!`/`select!`: they don't know the mailbox. `Host::run` for
+  branches in a handed-out program.
+- `stream(producer)` (`stream.rs`): `Cap<Emit<T>>`, pulled as an `Iterator`; dropping it drops the producer.
+- `effects/benches/ops.rs` (harness = false, std only): `cargo bench -p okay-effects` — only okay-effects', not
+  the root's JMH-locked `benches/kernel.rs`; numbers in the guide's "Speed".
 - `examples/okayhost/TestOkayRustWire.scala` is run from an okay scratch worktree (okay-py, a Live test), not here.
 - Keep the guide (`docs/guide.md`) and the README's snippets in step with the tests.
