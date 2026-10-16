@@ -53,3 +53,21 @@ fn map_by_identity_by_two_functions_and_by_flat_map() {
     assert_eq!(run_r(m().map(h).map(i)), run_r(m().map(move |x| i(h(x)))));
     assert_eq!(run_r(m().map(h)), run_r(m().flat_map(move |x| pure::<R, i64>(h(x)))));
 }
+
+/// "the laws in a $ changing its answer: binds around the shift0, associated either way"
+#[test]
+fn the_laws_in_a_dollar_changing_its_answer() {
+    use okay::cont::shift0;
+    use std::rc::Rc;
+    type S = Rc<dyn Fn(i64) -> String>;
+    type C = Eff<Nil, String>;
+    let shift = || shift0::<Reset, Nil, _, i64, C, Eff<Nil, S>>(|k| pure(Rc::new(move |x| k(x).run()) as S));
+    let show = |n: i64| pure_c::<Reset, C, String>(n.to_string());
+    let twice = |s: String| pure_c::<Reset, C, String>(format!("{s}{s}"));
+    let printf = |body: Cont<Reset, C, Eff<Nil, S>, String>| -> S { dollar(body, |s| pure(format!("<{s}>"))).run() };
+    let left = printf(shift().flat_map(show).flat_map(twice));
+    let right = printf(shift().flat_map(move |n| show(n).flat_map(twice)));
+    assert_eq!(left(4), "<44>");
+    assert_eq!(right(4), left(4));
+    assert_eq!(printf(shift().map(|n| n.to_string()))(5), printf(shift().flat_map(show))(5));
+}

@@ -237,3 +237,46 @@ fn cancel_under_uncancelable_then_the_region_fails_cancelled_not_recovered() {
     };
     assert!(matches!(give(&again, 5), Step::Cancelled));
 }
+
+// -- a guard at answers: under a `$`, a shift0 passing it, its `k` holding it
+
+#[test]
+fn ensure_under_a_dollar_a_shift0_passes_the_guard_k_resumed_twice_runs_the_finalizer_twice() {
+    use okay::cont::shift0;
+    type W = row![Writer<String>];
+    type Q = Delim<W>;
+    let body: Cont<Q, Eff<W, i64>, Eff<W, i64>, i64> = shift0::<Q, W, _, i64, Eff<W, i64>, Eff<W, i64>>(|k| {
+        let k2 = k.clone();
+        k(1).flat_map(move |a| k2(2).map(move |b| a + b))
+    })
+    .flat_map(|x| tell::<String, Q, _>(format!("got {x}")).cont().map(move |_| x * 10));
+    let p: Eff<W, i64> = dollar(body.ensure(|| tell::<String, Q, _>("fin".into())), pure);
+    assert_eq!(p.handle(collect()).run(), (vec!["got 1".into(), "fin".into(), "got 2".into(), "fin".into()], 30));
+}
+
+#[test]
+fn ensure_under_a_dollar_and_a_panic_in_the_rest_the_finalizer_the_error_out() {
+    use okay::cont::shift0;
+    type W = row![Writer<String>];
+    type Q = Delim<W>;
+    let log: Log = Rc::default();
+    let body: Cont<Q, Eff<W, i64>, Eff<W, i64>, i64> = shift0::<Q, W, _, i64, Eff<W, i64>, Eff<W, i64>>(|k| k(1))
+        .flat_map(|x| tell::<String, Q, _>("rest".into()).cont().map(move |_| if x == 1 { panic!("boom") } else { x }));
+    let p: Eff<W, i64> = dollar(body.ensure(|| tell::<String, Q, _>("fin".into())), pure);
+    assert_eq!(failed(p.handle(cell(log.clone())).step()), "boom");
+    assert_eq!(*log.borrow(), vec!["rest", "fin"]);
+}
+
+#[test]
+fn uncancelable_under_a_dollar_the_mask_held_through_the_shift0_the_finalizer_run_when_it_is_left() {
+    use okay::cont::shift0;
+    type W = row![Writer<String>];
+    type Q = Delim<W>;
+    let body: Cont<Q, Eff<W, i64>, Eff<W, i64>, i64> = shift0::<Q, W, _, i64, Eff<W, i64>, Eff<W, i64>>(|k| {
+        let k2 = k.clone();
+        k(1).flat_map(move |a| k2(2).map(move |b| a + b))
+    })
+    .uncancelable()
+    .ensure(|| tell::<String, Q, _>("fin".into()));
+    assert_eq!(dollar(body, pure).handle(collect()).run(), (vec!["fin".to_string(), "fin".to_string()], 3));
+}

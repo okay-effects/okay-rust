@@ -104,6 +104,10 @@ fn describe_as<T: Debug + 'static>(v: &Val) -> String {
     }
 }
 
+pub(crate) fn copy_val<T: Clone + 'static>(v: &Val) -> Val {
+    copy_as::<T>(v)
+}
+
 fn copy_as<T: Clone + 'static>(v: &Val) -> Val {
     match v.peek::<T>() {
         Some(t) => Val::new(t.clone()),

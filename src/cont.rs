@@ -166,6 +166,28 @@ impl<R, I, O, A: 'static> Cont<R, I, O, A> {
     }
 }
 
+impl<R, I, O, A: 'static> Cont<R, I, O, A> {
+    /// ENSURING under a `$`: `fin` run when this program is left — a shift0 passes the guard, so a `k` resumed twice
+    /// runs it twice
+    pub fn ensure(self, fin: impl Fn() -> Eff<R, ()> + 'static) -> Cont<R, I, O, A>
+    where
+        A: Clone,
+    {
+        let g = crate::machine::GuardRt {
+            finalizer: Some(Rc::new(move || fin().node)),
+            recover: None,
+            passing: None,
+            copy: crate::eff::copy_val::<A>,
+        };
+        Cont::of(Kind::Handle(Box::new(self.node), Level::Guard(Rc::new(g))))
+    }
+
+    /// UNCANCELABLE under a `$`: the mask held through a shift0, a cancel asked inside waiting until it is left
+    pub fn uncancelable(self) -> Cont<R, I, O, A> {
+        Cont::of(Kind::Handle(Box::new(self.node), Level::Mask(Rc::new(std::cell::Cell::new(false)))))
+    }
+}
+
 /// A HANDLER LEAVING THE REST: one that may be under a `$` — answering in place, with a state, translating
 pub struct Passing<E, T, A, B>(Handler<E, T, A, B>);
 
