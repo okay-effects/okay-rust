@@ -239,13 +239,12 @@ fn again(f: Failure) -> Rc<dyn Fn() -> Kind> {
 fn passing(stack: &[Segment], from: usize, mut op: Op) -> (Op, Vec<Rc<dyn Fn()>>) {
     let mut back = Vec::new();
     for s in stack[from..].iter().rev() {
-        if let Level::Guard(g) = &s.level {
-            if let Some(p) = &g.passing {
+        if let Level::Guard(g) = &s.level
+            && let Some(p) = &g.passing {
                 let (o, b) = p(op);
                 op = o;
                 back.extend(b);
             }
-        }
     }
     (op, back)
 }
@@ -344,14 +343,13 @@ fn steps(stack: &mut Vec<Segment>, pool: &mut Pool, hole: &Rc<dyn Any>, cur: Kin
                 let found = stack.iter().rposition(|s| s.level.catches(op.effect));
                 let op = if PASSING.with(Cell::get) {
                     let (op, back) = passing(stack, found.map_or(0, |i| i + 1), op);
-                    if !back.is_empty() {
-                        if let Some(top) = stack.last_mut() {
+                    if !back.is_empty()
+                        && let Some(top) = stack.last_mut() {
                             top.frames.push(Frame::new(move |v| {
                                 back.iter().for_each(|b| b());
                                 Node(Kind::Return(v))
                             }));
                         }
-                    }
                     op
                 } else {
                     op
@@ -367,11 +365,10 @@ fn steps(stack: &mut Vec<Segment>, pool: &mut Pool, hole: &Rc<dyn Any>, cur: Kin
                 Kind::Return(v)
             }
             Kind::Fail(k, f, unframe) => {
-                if unframe {
-                    if let Some(top) = stack.last_mut() {
+                if unframe
+                    && let Some(top) = stack.last_mut() {
                         top.frames.pop();
                     }
-                }
                 k.put(stack, pool);
                 Kind::Raise(f)
             }
