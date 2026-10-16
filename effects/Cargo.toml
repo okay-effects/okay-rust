@@ -8,6 +8,7 @@ license = "Apache-2.0"
 repository = "https://github.com/sergey-scherbina/okay-rust"
 
 [dependencies]
+okay = { package = "okay-rust", path = ".." }
 
 [[bench]]
 name = "ops"

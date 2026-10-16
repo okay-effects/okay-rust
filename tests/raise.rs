@@ -32,7 +32,7 @@ fn a_throw_in_each_kind_of_user_code() {
     let in_bind = ask::<i64, R, _>().flat_map(|_| -> Eff<R, i64> { panic!("boom") }).handle(reader(1));
     let in_value = ask::<i64, R, _>().handle(Handler::answering(|_: Reader<i64>| -> Answer { panic!("boom") }, |a| a));
     let in_clause =
-        ask::<i64, R, _>().handle(Handler::deep(|a| pure(a), |_: Reader<i64>, _| -> Eff<Nil, i64> { panic!("boom") }));
+        ask::<i64, R, _>().handle(Handler::deep(pure, |_: Reader<i64>, _| -> Eff<Nil, i64> { panic!("boom") }));
     let in_ret = ask::<i64, R, _>().handle(Handler::answering(|op: Reader<i64>| match op { Reader::Ask(r) => r.give(1) },
         |_: i64| -> i64 { panic!("boom") }));
     let in_defer = defer::<Nil, i64>(|| panic!("boom"));

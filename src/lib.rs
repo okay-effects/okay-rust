@@ -157,7 +157,7 @@ macro_rules! eff {
 macro_rules! effect {
     (
         $(#[$m:meta])*
-        $vis:vis enum $name:ident : $kind:ident, waits $(, $wire:ident)? {
+        $vis:vis enum $name:ident : $kind:ident, waits {
             $(
                 $(#[$om:meta])*
                 $op:ident ( $($arg:ident : $ty:ty),* $(,)? ) -> $out:ty = $f:ident ;
@@ -167,7 +167,20 @@ macro_rules! effect {
         $crate::effect!(@decl [$(#[$m])*] $vis $name $kind [Waiting waiting] {
             $( [$(#[$om])*] $op ( $($arg : $ty),* ) -> $out = $f ; )*
         });
-        $( $crate::effect!(@$wire $name { $( $op ( $($arg : $ty),* ) -> $out = $f ; )* }); )?
+    };
+    (
+        $(#[$m:meta])*
+        $vis:vis enum $name:ident : $kind:ident, waits, wire {
+            $(
+                $(#[$om:meta])*
+                $op:ident ( $($arg:ident : $ty:ty),* $(,)? ) -> $out:ty = $f:ident ;
+            )*
+        }
+    ) => {
+        $crate::effect!(@decl [$(#[$m])*] $vis $name $kind [Waiting waiting] {
+            $( [$(#[$om])*] $op ( $($arg : $ty),* ) -> $out = $f ; )*
+        });
+        $crate::effect!(@wire $name { $( $op ( $($arg : $ty),* ) -> $out = $f ; )* });
     };
     (
         $(#[$m:meta])*
