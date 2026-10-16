@@ -41,13 +41,15 @@ mod frame;
 mod handler;
 mod machine;
 mod row;
+mod step;
 mod val;
 
 pub mod audit;
 pub mod direct;
 pub mod typed;
 
-pub use eff::{defer, perform, pure, tail_rec, Loop, Answer, AnyOp, Bind, Eff, Never, Node, Pass, Program, Reply};
+pub use eff::{defer, perform, pure, tail_rec, Loop, Answer, AnyOp, Bind, Eff, Failure, Never, Node, Pass, Program, Reply};
+pub use step::{Step, Yield};
 pub use handler::{Handler, Interceptor, Observer, K};
 pub use row::{AuditAll, Audited, Cons, Effect, Here, Kind, Mark, MarkKind, Member, Nil, Plain, PlainKind, Sensitive, There};
 

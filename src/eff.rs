@@ -309,6 +309,38 @@ impl<T: 'static> Reply<T> {
     }
 }
 
+/// A FAILURE: what user code panicked with, or a host failed an operation with — its payload, and a message of it
+pub struct Failure(pub(crate) Box<dyn std::any::Any + Send>);
+
+impl Failure {
+    /// a failure of any payload: a message, an error
+    pub fn new(payload: impl std::any::Any + Send) -> Failure {
+        Failure(Box::new(payload))
+    }
+    /// its message: the payload if a string, else a word of its kind
+    pub fn message(&self) -> String {
+        self.0
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| self.0.downcast_ref::<&str>().map(|s| s.to_string()))
+            .unwrap_or_else(|| String::from("a failure"))
+    }
+    /// what a panic was caught with (`catch_unwind`'s error)
+    pub fn from_panic(p: Box<dyn std::any::Any + Send>) -> Failure {
+        Failure(p)
+    }
+    /// the payload, if it is a `P`
+    pub fn payload<P: 'static>(&self) -> Option<&P> {
+        self.0.downcast_ref::<P>()
+    }
+}
+
+impl Debug for Failure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Failure({:?})", self.message())
+    }
+}
+
 /// no value: an operation that never comes back (`fail`, `raise`)
 #[derive(Clone, Debug)]
 pub enum Never {}

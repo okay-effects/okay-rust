@@ -109,22 +109,58 @@ impl K0 {
     }
 }
 
+/// WHERE A RUN STOPPED: its value; an operation no level of the program handles, given back with the rest — every
+/// level, the top's included — for a host to resume (once, many times, or never); or a failure raised to the top
+pub(crate) enum Outcome {
+    Done(Val),
+    Asked(Op, K0),
+    Failed(crate::eff::Failure),
+}
+
 /// a program of no effect run to its value
 pub(crate) fn run(node: Node) -> Val {
-    let mut stack: Vec<Segment> = vec![Segment { level: Level::Top, frames: Vec::new() }];
+    match drive(Vec::new(), node.0, true) {
+        Outcome::Done(v) => v,
+        Outcome::Asked(..) => panic!("okay: an operation with no handler — a row not checked"),
+        Outcome::Failed(f) => std::panic::resume_unwind(f.0),
+    }
+}
+
+/// a program run from its start until it is done, fails, or asks its host
+pub(crate) fn start(node: Node) -> Outcome {
+    drive(Vec::new(), node.0, true)
+}
+
+/// a rest given back to a host, resumed with `v`: its levels put back on an empty stack, run until the next stop
+pub(crate) fn resume(k: K0, v: Val) -> Outcome {
+    drive(Vec::new(), Kind::Resume(k, v), false)
+}
+
+/// a rest given back to a host, failed: `f` raised where the operation was — with no guard among its levels, it
+/// unwinds every one of them to the top
+pub(crate) fn fail(k: K0, f: crate::eff::Failure) -> Outcome {
+    drop(k);
+    Outcome::Failed(f)
+}
+
+/// the loop: `top` when the stack starts with the top level (a run started; a rest resumed brings its own)
+fn drive(mut stack: Vec<Segment>, cur: Kind, top: bool) -> Outcome {
+    if top {
+        stack.push(Segment { level: Level::Top, frames: Vec::new() });
+    }
     // in a state's place while it is moved: the state taken out, so that no one else holds it and it is written in place
     let hole: Rc<dyn Any> = Rc::new(());
     let mut pool: Pool = Vec::new();
-    let mut cur = node.0;
+    let mut cur = cur;
     loop {
         cur = match cur {
             Kind::Return(v) => {
-                let Some(top) = stack.last_mut() else { return v };
+                let Some(top) = stack.last_mut() else { return Outcome::Done(v) };
                 match top.frames.pop() {
                     Some(f) => f.call(v).0,
                     // a level's frames all done: the level left, the value through its `ret`
                     None => match stack.pop().map(|s| s.level) {
-                        None | Some(Level::Top) => return v,
+                        None | Some(Level::Top) => return Outcome::Done(v),
                         Some(Level::Answering(_, rt)) => Kind::Return((rt.ret)(v)),
                         Some(Level::Stateful(_, rt, s)) => Kind::Return((rt.ret)(s, v)),
                         Some(Level::Deep(_, rt)) => (rt.ret)(v).0,
@@ -142,7 +178,11 @@ pub(crate) fn run(node: Node) -> Val {
             Kind::Then(v, f) => f.call(v).0,
             Kind::Inject(op, f) => {
                 let Some(i) = stack.iter().rposition(|s| s.level.catches(op.effect)) else {
-                    panic!("okay: an operation with no handler — a row not checked")
+                    // none in the program: the host's — the rest, this frame first, given back with it
+                    if let Some(top) = stack.last_mut() {
+                        top.frames.push(f);
+                    }
+                    return Outcome::Asked(op, K0::take(&mut stack, 0, &mut pool));
                 };
                 match &mut stack[i].level {
                     // answered in place: the value straight into the rest, no frame pushed
@@ -166,10 +206,10 @@ pub(crate) fn run(node: Node) -> Val {
                 body.0
             }
             Kind::Perform(op) => {
-                // the nearest level of the effect, or an observer before it: there is one — the row says so, and
-                // `run` takes no row but `Nil`
+                // the nearest level of the effect, or an observer before it; none in the program — an effect of the row
+                // outside it: the host's, given back with the rest, every level
                 let Some(i) = stack.iter().rposition(|s| s.level.catches(op.effect)) else {
-                    panic!("okay: an operation with no handler — a row not checked")
+                    return Outcome::Asked(op, K0::take(&mut stack, 0, &mut pool));
                 };
                 match &mut stack[i].level {
                     Level::Answering(_, rt) => Kind::Return((rt.value)(op.value)),
