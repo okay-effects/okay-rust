@@ -174,6 +174,23 @@ pub(crate) fn cancel(k: K0) -> Outcome {
 }
 
 impl K0 {
+    /// a rest that is a function: one transparent level, `f` its one frame (the reference interpreter's `k`)
+    #[cfg(test)]
+    pub(crate) fn of_fn(f: impl Fn(Val) -> Node + 'static) -> K0 {
+        let g = GuardRt { finalizer: None, recover: None, passing: None, copy: crate::eff::no_copy };
+        K0(Rc::new(RefCell::new(vec![Segment { level: Level::Guard(Rc::new(g)), frames: vec![Frame::new(f)] }])))
+    }
+
+    /// a rest made by `of_fn`, resumed with `v`: its function's program
+    #[cfg(test)]
+    pub(crate) fn call_fn(&self, v: Val) -> Node {
+        let mut levels = self.0.borrow_mut();
+        let [s] = levels.as_mut_slice() else { panic!("the reference resumes only its own rests") };
+        let [f] = s.frames.as_mut_slice() else { panic!("the reference resumes only its own rests") };
+        f.make_shared();
+        f.copy_shared().call(v)
+    }
+
     /// an uncancelable level among the rest's
     pub(crate) fn masked(&self) -> bool {
         self.0.borrow().iter().any(|s| matches!(s.level, Level::Mask(_)))

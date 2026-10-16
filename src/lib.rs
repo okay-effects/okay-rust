@@ -42,6 +42,8 @@ mod eff;
 mod frame;
 mod handler;
 mod machine;
+#[cfg(test)]
+mod reference;
 mod row;
 mod step;
 mod val;
