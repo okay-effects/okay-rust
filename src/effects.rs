@@ -160,3 +160,97 @@ pub fn either<E: Clone + Debug + 'static, T, A: 'static>() -> Handler<Throws<E>,
         Throws::Raise(e, _) => pure(Err(e)),
     })
 }
+
+// OVER THE WIRE: the standard effects' operations by name, their arguments a record
+
+use crate::data::{Data, IsData};
+use crate::wire::{answer_out, reply, AnswerOut, Remote};
+use crate::Answer;
+
+fn empty() -> Data {
+    Data::Dict(vec![])
+}
+
+impl<V: Clone + Debug + IsData + 'static> Remote for Reader<V> {
+    fn to_wire(&self) -> (String, Data) {
+        ("ask".into(), empty())
+    }
+    fn answer(&self, d: &Data) -> Result<Answer, String> {
+        match self {
+            Reader::Ask(r) => Ok(r.give(V::from_data(d)?)),
+        }
+    }
+    fn from_wire(name: &str, _: &Data) -> Option<Result<(Self, AnswerOut), String>> {
+        (name == "ask").then(|| Ok((Reader::Ask(reply()), answer_out::<V> as AnswerOut)))
+    }
+}
+
+impl<S: Clone + Debug + IsData + 'static> Remote for State<S> {
+    fn to_wire(&self) -> (String, Data) {
+        match self {
+            State::Get(_) => ("get".into(), empty()),
+            State::Put(s, _) => ("put".into(), Data::Dict(vec![("s".into(), s.to_data())])),
+        }
+    }
+    fn answer(&self, d: &Data) -> Result<Answer, String> {
+        match self {
+            State::Get(r) => Ok(r.give(S::from_data(d)?)),
+            State::Put(_, r) => Ok(r.give(())),
+        }
+    }
+    fn from_wire(name: &str, record: &Data) -> Option<Result<(Self, AnswerOut), String>> {
+        match name {
+            "get" => Some(Ok((State::Get(reply()), answer_out::<S> as AnswerOut))),
+            "put" => Some(record.field("s").and_then(S::from_data).map(|s| (State::Put(s, reply()), answer_out::<()> as AnswerOut))),
+            _ => None,
+        }
+    }
+}
+
+impl<W: Clone + Debug + IsData + 'static> Remote for Writer<W> {
+    fn to_wire(&self) -> (String, Data) {
+        match self {
+            Writer::Tell(w, _) => ("tell".into(), Data::Dict(vec![("w".into(), w.to_data())])),
+        }
+    }
+    fn answer(&self, _: &Data) -> Result<Answer, String> {
+        match self {
+            Writer::Tell(_, r) => Ok(r.give(())),
+        }
+    }
+    fn from_wire(name: &str, record: &Data) -> Option<Result<(Self, AnswerOut), String>> {
+        (name == "tell").then(|| record.field("w").and_then(W::from_data).map(|w| (Writer::Tell(w, reply()), answer_out::<()> as AnswerOut)))
+    }
+}
+
+impl Remote for Choose {
+    fn to_wire(&self) -> (String, Data) {
+        match self {
+            Choose::Among(n, _) => ("among".into(), Data::Dict(vec![("n".into(), n.to_data())])),
+            Choose::Fail(_) => ("fail".into(), empty()),
+        }
+    }
+    fn answer(&self, d: &Data) -> Result<Answer, String> {
+        match self {
+            Choose::Among(_, r) => Ok(r.give(usize::from_data(d)?)),
+            Choose::Fail(_) => Err("okay: a failed path has no answer".into()),
+        }
+    }
+    fn from_wire(name: &str, record: &Data) -> Option<Result<(Self, AnswerOut), String>> {
+        (name == "among").then(|| record.field("n").and_then(usize::from_data).map(|n| (Choose::Among(n, reply()), answer_out::<usize> as AnswerOut)))
+    }
+}
+
+impl<E: Clone + Debug + IsData + 'static> Remote for Throws<E> {
+    fn to_wire(&self) -> (String, Data) {
+        match self {
+            Throws::Raise(e, _) => ("raise".into(), Data::Dict(vec![("e".into(), e.to_data())])),
+        }
+    }
+    fn answer(&self, _: &Data) -> Result<Answer, String> {
+        Err("okay: a raise has no answer".into())
+    }
+    fn from_wire(_: &str, _: &Data) -> Option<Result<(Self, AnswerOut), String>> {
+        None
+    }
+}

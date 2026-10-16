@@ -75,6 +75,14 @@ impl<R, A: 'static> Yield<R, A> {
         outcome(machine::fail(self.k.clone(), f))
     }
 
+    pub(crate) fn effect_id(&self) -> std::any::TypeId {
+        self.op.effect
+    }
+
+    pub(crate) fn erased_op(&self) -> &Op {
+        &self.op
+    }
+
     /// dropped: the rest is not resumed
     pub fn cancel(self) -> Step<R, A> {
         Step::Cancelled

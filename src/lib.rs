@@ -35,6 +35,7 @@
 //! let p: Eff<row![Reader<i64>], i64> = get::<i64, _, _>();
 //! ```
 
+pub mod data;
 pub mod effects;
 mod eff;
 mod frame;
@@ -47,9 +48,11 @@ mod val;
 pub mod audit;
 pub mod direct;
 pub mod typed;
+pub mod wire;
 
 pub use eff::{defer, perform, pure, tail_rec, Loop, Answer, AnyOp, Bind, Eff, Failure, Never, Node, Pass, Program, Reply};
 pub use step::{Step, Yield};
+pub use data::{Data, IsData};
 pub use handler::{Handler, Interceptor, Observer, K};
 pub use row::{AuditAll, Audited, Cons, Effect, Here, Kind, Mark, MarkKind, Member, Nil, Plain, PlainKind, Sensitive, There};
 
@@ -154,7 +157,7 @@ macro_rules! eff {
 macro_rules! effect {
     (
         $(#[$m:meta])*
-        $vis:vis enum $name:ident : $kind:ident, waits {
+        $vis:vis enum $name:ident : $kind:ident, waits $(, $wire:ident)? {
             $(
                 $(#[$om:meta])*
                 $op:ident ( $($arg:ident : $ty:ty),* $(,)? ) -> $out:ty = $f:ident ;
@@ -164,6 +167,52 @@ macro_rules! effect {
         $crate::effect!(@decl [$(#[$m])*] $vis $name $kind [Waiting waiting] {
             $( [$(#[$om])*] $op ( $($arg : $ty),* ) -> $out = $f ; )*
         });
+        $( $crate::effect!(@$wire $name { $( $op ( $($arg : $ty),* ) -> $out = $f ; )* }); )?
+    };
+    (
+        $(#[$m:meta])*
+        $vis:vis enum $name:ident : $kind:ident, wire {
+            $(
+                $(#[$om:meta])*
+                $op:ident ( $($arg:ident : $ty:ty),* $(,)? ) -> $out:ty = $f:ident ;
+            )*
+        }
+    ) => {
+        $crate::effect!(@decl [$(#[$m])*] $vis $name $kind [Perform perform] {
+            $( [$(#[$om])*] $op ( $($arg : $ty),* ) -> $out = $f ; )*
+        });
+        $crate::effect!(@wire $name { $( $op ( $($arg : $ty),* ) -> $out = $f ; )* });
+    };
+    // AN EFFECT THAT CROSSES THE WIRE: each operation by its function's name, its arguments a record
+    (@wire $name:ident { $( $op:ident ( $($arg:ident : $ty:ty),* ) -> $out:ty = $f:ident ; )* }) => {
+        impl $crate::wire::Remote for $name {
+            #[allow(unused_variables)]
+            fn to_wire(&self) -> (String, $crate::Data) {
+                match self {
+                    $( $name::$op($($arg,)* _) => (
+                        stringify!($f).to_string(),
+                        $crate::Data::Dict(vec![$(($crate::data::camel(stringify!($arg)), $crate::IsData::to_data($arg))),*]),
+                    ), )*
+                }
+            }
+            fn answer(&self, d: &$crate::Data) -> Result<$crate::Answer, String> {
+                match self {
+                    $( $name::$op(.., r) => Ok(r.give(<$out as $crate::IsData>::from_data(d)?)), )*
+                }
+            }
+            #[allow(unused_variables)]
+            fn from_wire(name: &str, record: &$crate::Data) -> Option<Result<(Self, $crate::wire::AnswerOut), String>> {
+                $(
+                    if name == stringify!($f) {
+                        let made = (|| -> Result<Self, String> {
+                            Ok($name::$op($(<$ty as $crate::IsData>::from_data(record.field(&$crate::data::camel(stringify!($arg)))?)?,)* $crate::wire::reply()))
+                        })();
+                        return Some(made.map(|op| (op, $crate::wire::answer_out::<$out> as $crate::wire::AnswerOut)));
+                    }
+                )*
+                None
+            }
+        }
     };
     (
         $(#[$m:meta])*
