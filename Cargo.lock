@@ -3,5 +3,16 @@
 version = 4
 
 [[package]]
-name = "okay-rs"
+name = "okay-effects"
 version = "0.1.0"
+
+[[package]]
+name = "okay-rust"
+version = "0.1.0"
+
+[[package]]
+name = "okay-shop"
+version = "0.1.0"
+dependencies = [
+ "okay-effects",
+]
