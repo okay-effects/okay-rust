@@ -223,9 +223,12 @@ pub fn collect_emitted<W: Clone + Debug + 'static, T, A: 'static>() -> Handler<E
 /// an erased rest of a shift: its value in, the program up to the reset out
 type ShiftK<T, S> = std::rc::Rc<dyn Fn(crate::eff::Val) -> Eff<T, S>>;
 
+type ShiftBody<T, S> = std::rc::Rc<dyn Fn(ShiftK<T, S>) -> Eff<T, S>>;
+type ShiftResume<T, S> = std::rc::Rc<dyn Fn(&K<T, S>, crate::eff::Val) -> Eff<T, S>>;
+
 pub struct Shifts<S, T> {
-    body: std::rc::Rc<dyn Fn(ShiftK<T, S>) -> Eff<T, S>>,
-    resume: std::rc::Rc<dyn Fn(&K<T, S>, crate::eff::Val) -> Eff<T, S>>,
+    body: ShiftBody<T, S>,
+    resume: ShiftResume<T, S>,
 }
 
 impl<S, T> Clone for Shifts<S, T> {
