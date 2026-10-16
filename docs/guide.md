@@ -9,8 +9,11 @@ Every snippet is from a test or a doctest (`cargo test --workspace`).
 5. [Middleware](#5-middleware)
 6. [Every path](#6-every-path)
 7. [Over the wire, with okay — both ways](#7-over-the-wire-with-okay)
-8. [How it works](#8-how-it-works)
-9. [Limits](#9-limits)
+8. [Parallel branches](#8-parallel-branches)
+9. [Streams](#9-streams)
+10. [How it works](#10-how-it-works)
+11. [Speed](#11-speed)
+12. [Limits](#12-limits)
 
 ## 1. Operations, capabilities, handlers
 
@@ -149,7 +152,61 @@ functions.insert(name, function(move |args| charge(args.iter().map(data).collect
 operations are case classes, the handlers callbacks under Scala's own effects:
 `examples/okayhost/TestOkayRustWire.scala`, run against okay's JVM host.
 
-## 8. How it works
+## 8. Parallel branches
+
+`all(r, branches)` runs n branches of one type, their values in order;
+`par(r, a, b)` two of different types; `race(r, branches)` the first value, the
+others dropped where they are (their destructors run). The branches are polled
+round-robin on the run's thread, so their real waits overlap — two 50 ms sleeps
+take 50 ms:
+
+```rust
+let got = run(|r| async move { all(&r, [50u64, 50].map(|ms| async move { sleep(ms).await; ms })).await });
+```
+
+A branch performs through any capability it sees — a parent's, captured as any
+value is (no lending: the borrow checker keeps a capability inside its handler's
+scope), or its own handlers':
+
+```rust
+answering(r, |a: Ask| a.n + 1000, |parent| async move {
+    let parent = &parent;
+    all(r, (1..=3i64).map(|i| answering(r, move |a: Ask| a.n * i, move |mine| async move {
+        let x = mine.perform(Ask { n: 10 }).await;
+        sleep(10).await; // the others run meanwhile, their handlers installed
+        let y = mine.perform(Ask { n: 1 }).await;
+        x + y + parent.perform(Ask { n: i }).await
+    })))
+    .await
+})
+```
+
+The parent's handler answers the branches one operation at a time; a handed-out
+program's branches ask the host in turn (`all(&h.run(), …)`). A branch that
+panics fails `all` and drops the others; a parent's `Abort` drops every branch.
+`tests/par.rs`.
+
+## 9. Streams
+
+`stream(producer)`: the values a producer emits through its `Cap<Emit<T>>`
+(`out.emit(x).await`), pulled as an `Iterator`, one step of the producer per
+value; breaking out of the loop drops the producer, its destructors run:
+
+```rust
+let squares: Vec<i64> = stream(|_, out| async move {
+    for i in 1..=5 {
+        out.emit(i * i).await;
+    }
+})
+.collect();
+```
+
+The producer gets its run too, for handlers of its own. Inside an effectful
+program, `Emit<T>` is an operation like any other: `handle` it, each value to a
+consumer that may perform effects itself and stop the producer with `Abort`
+(`consumed_inside_an_effectful_program`, `tests/stream.rs`).
+
+## 10. How it works
 
 One operation is in flight per run, in a mailbox. `perform` puts the operation
 there and returns `Pending`; the handler polling its body sees an operation of
@@ -159,10 +216,27 @@ and returns `Ready`. An operation that is not the handler's — or a real async
 wait — makes the handler return `Pending` itself, so it reaches the next handler
 out, or the executor.
 
-## 9. Limits
+Branches (`all`, `par`, `race`) share the mailbox. An operation answered inside a
+branch is taken and answered within the branch's own poll; one going past the
+branches stays in the mailbox across polls, and while it does only the branch
+that performed it is polled — so the parent answers one at a time.
 
-- One operation in flight per run: effects inside `join!` of two branches of one
-  run are not supported; start branches as separate computations.
+## 11. Speed
+
+`cargo bench -p okay-effects` (`effects/benches/ops.rs`, std only; a million
+operations, the median of 7; Apple M4 Max, rustc 1.92):
+
+| lane | M ops/s | ns/op |
+|---|---|---|
+| `answering`: a perform answered by a function | 43.0 | 23 |
+| a translating chain of depth 3 (each level performs on the next out) | 11.4 | 88 |
+| `drive`: a handed-out program, each operation as data through two middleware and `Routes` | 11.5 | 87 |
+
+## 12. Limits
+
+- Use the branches' combinators (`all`, `par`, `race`), not `join!`/`select!`:
+  they know the run's mailbox; a foreign combinator polling two branches that
+  both perform past it would clash.
 - Continuations are one-shot; `every_path` replays.
 - A failure at an operation is a panic (`Raise`, `fail`): it unwinds, destructors
   run; catch it with `catch_unwind` if the program must.

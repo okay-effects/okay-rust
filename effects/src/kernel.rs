@@ -38,6 +38,11 @@ pub struct Host {
 }
 
 impl Host {
+    /// The program's run: for handlers of its own, and its branches (`all`, `par`, `race`).
+    pub fn run(&self) -> Run {
+        self.run.clone()
+    }
+
     /// A capability whose operations go to whoever steps the program.
     pub fn outside<O: Operation>(&self) -> Cap<O> {
         let c: Cap<O> = Cap::new(&self.run);

@@ -8,3 +8,7 @@ license = "Apache-2.0"
 repository = "https://github.com/sergey-scherbina/okay-rust"
 
 [dependencies]
+
+[[bench]]
+name = "ops"
+harness = false
