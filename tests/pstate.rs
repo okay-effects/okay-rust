@@ -60,25 +60,28 @@ struct Authed {
 
 type Fin = (Closed, i64);
 
+/// a step of the protocol: the connection's state `From` before it, `To` after it, its value `A`
+type Move<From, To, A> = Cont<Delim<R>, P<R, To, Fin>, P<R, From, Fin>, A>;
+
 fn st() -> PState<R, Fin> {
     okay::cont::state::<R, Fin>()
 }
 
-fn connect(host: String) -> Cont<Delim<R>, P<R, Open, Fin>, P<R, Closed, Fin>, ()> {
+fn connect(host: String) -> Move<Closed, Open, ()> {
     st().get::<Closed>().flat_map(move |_| st().put::<Closed, Open>(Open { host: host.clone() }))
 }
 
-fn login(user: &'static str) -> Cont<Delim<R>, P<R, Authed, Fin>, P<R, Open, Fin>, ()> {
+fn login(user: &'static str) -> Move<Open, Authed, ()> {
     st().get::<Open>().flat_map(move |o| st().put::<Open, Authed>(Authed { host: o.host, user: user.to_string() }))
 }
 
-fn query(q: &'static str) -> Cont<Delim<R>, P<R, Authed, Fin>, P<R, Authed, Fin>, i64> {
+fn query(q: &'static str) -> Move<Authed, Authed, i64> {
     st().get::<Authed>().flat_map(move |a| {
         tell::<String, Delim<R>, _>(format!("{}@{}: {q}", a.user, a.host)).cont::<P<R, Authed, Fin>>().map(move |_| q.len() as i64)
     })
 }
 
-fn close() -> Cont<Delim<R>, P<R, Closed, Fin>, P<R, Authed, Fin>, ()> {
+fn close() -> Move<Authed, Closed, ()> {
     st().get::<Authed>().flat_map(|_| st().put::<Authed, Closed>(Closed))
 }
 
@@ -119,15 +122,18 @@ struct Scored {
 
 type PF = (Vec<Scored>, i64);
 
+/// a stage of the pipeline: the rows' schema `From` before it, `To` after it
+type Stage<From, To, A> = Cont<Delim<R>, P<R, To, PF>, P<R, From, PF>, A>;
+
 fn pst() -> PState<R, PF> {
     okay::cont::state::<R, PF>()
 }
 
-fn load(rows: Vec<Raw>) -> Cont<Delim<R>, P<R, Vec<Raw>, PF>, P<R, (), PF>, ()> {
+fn load(rows: Vec<Raw>) -> Stage<(), Vec<Raw>, ()> {
     pst().get::<()>().flat_map(move |_| pst().put::<(), Vec<Raw>>(rows.clone()))
 }
 
-fn enrich() -> Cont<Delim<R>, P<R, Vec<Enriched>, PF>, P<R, Vec<Raw>, PF>, ()> {
+fn enrich() -> Stage<Vec<Raw>, Vec<Enriched>, ()> {
     pst().get::<Vec<Raw>>().flat_map(|rows| {
         let n = rows.len();
         let enriched: Vec<Enriched> =
@@ -138,7 +144,7 @@ fn enrich() -> Cont<Delim<R>, P<R, Vec<Enriched>, PF>, P<R, Vec<Raw>, PF>, ()> {
     })
 }
 
-fn score() -> Cont<Delim<R>, P<R, Vec<Scored>, PF>, P<R, Vec<Enriched>, PF>, i64> {
+fn score() -> Stage<Vec<Enriched>, Vec<Scored>, i64> {
     ask::<i64, Delim<R>, _>().cont::<P<R, Vec<Enriched>, PF>>().flat_map(|limit| {
         pst().get::<Vec<Enriched>>().flat_map(move |rows| {
             let scored: Vec<Scored> = rows
