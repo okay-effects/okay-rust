@@ -50,7 +50,21 @@ Two crates in one workspace: the root `okay` (okay-core's kernel ported — what
   lanes (measured: not unwinding, not size; `ManuallyDrop` restores it). `block_on`, `both`; `tests/async.rs`.
 - Benchmarks: `benches/kernel.rs`, okay-core's KernelBenchmark lanes, the same programs and n; run it under JMH's
   lock (`/tmp/okz/tools/withlock.py`) — other sessions measure on this machine — and compile under it too.
-- Stage 2 (not yet): `Cont<R, I, O, A>` for answer-type modification — `$`/`reset`, `shift0`, `PState` — with
+- Stage 2 is in (`src/cont.rs`): `Cont<R, I, O, A>`, `Control<T>`/`Delim<T>`/`Reset` in the row, `Nearest` (a shift0
+  to the nearest `$`, never past one — `Control` is not an `Effect`, which keeps the impls apart), `Bind` for the four
+  pairs, `shift0` (in `okay::cont` only: `okay::effects::shift0` is the effect's), `dollar`, `reset`, `Passing`
+  (answering, stateful, translating — under a `$` no handler takes the rest), `PState`. The machine: `Level::Dollar`,
+  `Kind::Shift0` (the levels from the nearest `$` up, the `$` with them, as `k`).
+- The machine's stops: `machine::Outcome::{Done, Asked, Failed, Cancelled}` — an operation no level takes is ASKED of
+  the host with every level as `k` (`Eff::step`, `step.rs`); `run` only for `Nil`. A panic is a `Raise` where it
+  happened (the loop under `catch_unwind`; the heap stack untouched), unwound by the machine: `Level::Guard`
+  (finalizer, recover, passing), `Level::Mask` (uncancelable), `Kind::{Raise, Cancel, Leave, Fail, CancelK, Passed}`.
+  A state's step that panics loses that state (it was moved out): keep steps total.
+- `okay::wire` (`Remote`, `Remotes`, `program`, `serve`; `effect!`'s `wire` flag) and `okay::data` (`Data`, `IsData`)
+  — okay-effects takes its `Data` from here.
+- Checks beyond the ported suites: `src/reference.rs` (cfg(test): normal forms, random programs of effects and of
+  control, the machine as the meaning — run it after any change to the machine), `tests/tck.rs` (okay-kernel's
+  digest; the TCK's state a cell, as its `Handlers.state`), A/B the lanes under the lock after machine changes.
   `Bind` impls for the four pairs of `Eff`/`Cont` (no overlap, so no specialization); `on_unimplemented` messages.
 - No casts outside `take`/`take_op`/`state` (the erased machine's three); no panics but theirs and the machine's
   "a row not checked", which a typed program never reaches.

@@ -6,7 +6,7 @@
 
 | crate | what |
 |---|---|
-| **`okay`** (the root, `src/`) | okay-core's kernel (`okay.one`) ported: a program of effects as DATA, its effects a ROW of types, handlers as values, the rest `k` resumed any number of times, INTERCEPTORS for control and audit; one API compiled by the handlers' types (`okay::typed`, async); direct style passing effects down (`okay::direct`). Checked by okay-core's own suites, measured against Scala. |
+| **`okay`** (the root, `src/`) | okay-core's kernel (`okay.one`) ported: a program of effects as DATA, its effects a ROW of types, handlers as values, the rest `k` resumed any number of times, INTERCEPTORS for control and audit; a program STEPPED by a host (okay-kernel's protocol) and over okay's WIRE — its `k` resumed by okay's Choice across processes; GUARDS (`ensure`, `recover`, `uncancelable`); delimited CONTROL with answer-type modification (`Cont`, `$`, `shift0`, `PState`); one API compiled by the handlers' types (`okay::typed`, async); direct style passing effects down (`okay::direct`). Checked by okay-core's own suites, a reference interpreter on random programs, okay-kernel's TCK digest; measured against Scala. |
 | **`okay-effects`** (`effects/`) | effects in plain `async` Rust with CAPABILITIES (as okay-java's `Cap`, okay-go, okay-python): a handler makes a capability, operations answered by its identity; okay-kernel's PROTOCOL (a program handed out, stepped by a host: `step`, `resume`, `fail`, `cancel`); MIDDLEWARE over every operation as data (audit, metrics, security, record, replay); every path; parallel branches (`all`, `par`, `race`: concurrent waits, a parent's capabilities answered one at a time); streams (`stream`: a producer emitting through `Cap<Emit<T>>`, pulled as an `Iterator`); and okay's WIRE both ways — a Rust program under Scala handlers, a Rust handler answering okay. ~43 M operations/s (`cargo bench -p okay-effects`). Guide: [docs/guide.md](docs/guide.md). |
 
 `examples/shop`: the shop of okay's examples on `okay-effects` — a `Db` effect under the inventory, payments over
@@ -55,9 +55,15 @@ The specification is okay-core's kernel and its suites: each test here is one of
 5. [Handlers](#handlers)
 6. [The machine](#the-machine)
 7. [Control and audit: interceptors](#control-and-audit-interceptors)
-8. [What the types refuse](#what-the-types-refuse)
-9. [What Rust costs, against Scala](#what-rust-costs-against-scala)
-10. [Next](#next)
+8. [A program stepped by a host](#a-program-stepped-by-a-host)
+9. [Over a wire, with okay](#over-a-wire-with-okay)
+10. [Guards](#guards)
+11. [Delimited control: answer-type modification](#delimited-control-answer-type-modification)
+12. [Generators, control as an effect](#generators-control-as-an-effect)
+13. [Checked against](#checked-against)
+14. [What the types refuse](#what-the-types-refuse)
+15. [What Rust costs, against Scala](#what-rust-costs-against-scala)
+16. [Next](#next)
 
 ## Rows
 
@@ -147,7 +153,10 @@ Three forms, each over the row `T` outside it, of the body's `A` to its own `B`:
 - `Handler::stateful(s0, step, ret)` — a state `S`, each operation its value and the state moved, in place. Taken
   into a rest, the state as it was then: each resumption its own (a choice's paths, each its state);
 - `Handler::deep(ret, apply)` — each operation its clause, given the rest `k: K<T, B>`, data: resumed none, once or
-  many times, kept, by the operation's `Reply`.
+  many times, kept, by the operation's `Reply`;
+- `Handler::aborting(ret, abort)` — the rest dropped, no `k` made (an error, an early answer);
+- `Handler::translating(apply)` — each operation a program over the row outside, `r.give(x)` at its end; a failure
+  in it raised where the operation was, so the body's own `recover` sees it.
 
 `p.handle(h)` takes a PLAIN effect off wherever it is in the row.
 
@@ -190,6 +199,87 @@ fn telling<T: Member<Audit, I> + 'static, I: 'static, A: 'static>() -> Observer<
 p.observe(telling()).handle(reader(5)).handle(state(1)).handle_audited::<Pay, _, _>(bank(100)).handle(trail()).run()
 // trail: ["Reader<i64> Ask(_)", "  → 5", "State<i64> Get(_)", "  → 1", "State<i64> Put(6, _)", "  → ()", …]
 ```
+
+## A program stepped by a host
+
+okay-kernel's protocol (okay-core's `Step`): `p.step()` runs a program until its value, a failure, or its first
+operation of the row OUTSIDE it — one no handler of its own takes — and gives it back with the rest:
+
+```rust
+type R = row![Reader<i64>];
+let Step::Yield(y) = ask::<i64, R, _>().map(|n| n * 2).step() else { unreachable!() };
+let Some(Reader::Ask(r)) = y.op::<Reader<i64>>() else { unreachable!() };
+assert!(matches!(y.resume(r.give(1)), Step::Done(2)));
+assert!(matches!(y.resume(r.give(7)), Step::Done(14)));   // the same rest again: each resumption its own
+```
+
+`Step::{Done, Yield, Failed, Cancelled}`; a `Yield` answered by the operation's reply (`resume`), failed (`fail`:
+raised where the operation was, in the rest's levels — a `recover` there given it), or cancelled (`cancel`: the
+finalizers run; under `uncancelable` the same step given back, the cancel fired when the mask is left). User code's
+panics are `Failed` at the run (`tests/step.rs`, `tests/raise.rs`, `tests/head.rs`).
+
+## Over a wire, with okay
+
+`okay::wire`: an operation as a name and a record, its answer a plain value (`Data`). An effect crosses when it is
+`Remote` — `effect! { pub enum Prices: Plain, wire { … } }` writes it (each operation by its function's name, its
+arguments a record, lowerCamel: a Scala case class's shape); the standard effects are. `wire::program(p.step(),
+&remotes)` is a program on the wire: `Wire::Perform { name, args, k }`, `k` called as many times as the other side
+resumes it; `wire::serve` a Rust handler answering the wire. Against okay's JVM host, through okay's Rust worker
+(`examples/okayhost/TestOkayRustWire.scala`): okay's `Choice` resumes the Rust rest for every branch of a Rust
+program — `[11, 21, 12, 22]` — the kernel's effect answered by Scala callbacks under okay's `Reader`, and a kernel
+handler answering okay (`tests/wire.rs`).
+
+## Guards
+
+A guard is a level of no effect (okay-core's `Guard`): `p.ensure(fin)` runs `fin` when `p` is left — with its value,
+a failure, an abort past it, a cancel; under a `k` resumed twice, twice; `p.recover(f)` gives `f` a failure raised in
+`p` (a panic, a host's `fail` — not an effect's `raise`, which is its handler's); `p.uncancelable()`;
+`p.guard(Guard::new().finalizer(…).passing(…))`, its passing told of each operation going out and sending one in its
+place. In the machine a panic is a `Raise` where it happened: the loop runs under `catch_unwind`, its stack is on the
+heap and untouched, so the machine unwinds the levels itself, their guards asked (`tests/guard.rs`).
+
+## Delimited control: answer-type modification
+
+`okay::cont` (okay-core's stage 2; Materzok–Biernacki's shift0 and `$`, Asai–Kameyama's typing): a program of
+control `Cont<R, I, O, A>` under a `$` over `T` — its row `Delim<T>` (`Control<T>` first) — `I` the answer its rest
+gives, `O` the answer it makes. `shift0` takes the rest up to the nearest `$` (`Nearest`, never past another), the
+`$` with it, as `k`; `dollar(body, ret)` and `reset` close it. A program of effects meets one of control at any
+answers (`Bind` for the four pairs); under a `$` only handlers leaving the rest (`Passing`: answering, stateful,
+translating). printf, the answer `String` turned `i64 -> String`:
+
+```rust
+use okay::cont::shift0;
+type S = Rc<dyn Fn(i64) -> String>;
+let body: Cont<Reset, Eff<Nil, String>, Eff<Nil, S>, i64> =
+    shift0::<Reset, Nil, _, i64, Eff<Nil, String>, Eff<Nil, S>>(|k| pure(Rc::new(move |x| k(x).run()) as S));
+let p: Eff<Nil, S> = dollar(body.map(|n| n.to_string()), |s| pure(format!("Hello {s}")));
+assert_eq!(p.run()(42), "Hello 42");
+```
+
+`PState` (`pstate`, `state`): a state whose TYPE the steps move, carried by the answer type — a protocol (closed,
+open, logged in: a query before the login does not compile, a session left open does not compile), a pipeline whose
+rows' schema is the state's type (`tests/control.rs`, `tests/pstate.rs`, `tests/nodes.rs`, `src/cont.rs`'s refusals).
+
+## Generators, control as an effect
+
+`Emit` with `generate` (a body as a lazy generator, its `k` kept as the next step, pulled again and again) and
+`collect_emitted`; `Shifts<S, T>`: `shift0`, `shift` (Danvy–Filinski's: its body under the reset) and `reset`, control
+as an effect of the row, its answer fixed (`tests/data.rs`, `tests/stream.rs`, `tests/shift.rs`).
+
+## Checked against
+
+- **okay-core's suites**, each test one of theirs, named after it: TestStd, TestAcceptance, TestIntercept,
+  TestRecursion, TestStep, TestRaise, TestGuard, TestGuardStep, TestLaws, TestAgain, TestCont, TestControl, TestShift,
+  TestShiftThin, TestPState, TestAtmUses, TestNodes, TestData, TestStream, TestHead, TestStatefulRun, TestFused's
+  behaviour, TestGuarantees (as `compile_fail` doc tests: `src/guarantees.rs`, `src/cont.rs`).
+- **A reference** (`src/reference.rs`, okay-core's TestReference): each node by its rule, nothing clever — normal forms
+  in continuation-passing style, a shift0 not yet at its `$` a form of its own. Random programs with handlers of every
+  kind in them and around them, stepped ones, and programs of control (shift0 calling `k` none, once, twice, `$`s a
+  row deeper, effects out past the `$`s, handlers under them): the machine as the meaning on thousands; their answers
+  pinned by a digest. (Rows are types here: a random program's handlers are installed by `intercept`, the row kept.)
+- **okay-kernel's TCK digest** (`tests/tck.rs`): its thousand random programs — logs, states, failures, choices nested
+  in any order, each effect with two identities — give `-8623788747993822161`, the digest of okay-kernel's reference
+  machine, the legacy kernel and okay-java.
 
 ## What the types refuse
 
@@ -475,6 +565,8 @@ a nested `flat_map` still a boxed node (`leftMaps`, `state`).
 
 ## Next
 
-Stage 2: answer-type modification — `Cont<R, I, O, A>`, `$`/`reset`, `shift0`, `PState` and the protocol of
-okay-core's `TestAtmUses` — the `Bind` impls for the four pairs of `Eff`/`Cont`, no overlap; `on_unimplemented` for
-answers that do not meet.
+- A `Linear` handler (okay-core's: `k` once, at any answers, under a `$`): its clause generic over the answers needs
+  a rank-2 type — a trait object of a generic method; not yet.
+- Operations BY KEY (okay-core's `In.At`, okay's root): an effect's place here is its type in the row.
+- The reference's random programs a row deeper at each step (okay-core's `reset` inside a body over `Delim[R]`): a
+  recursion over types, one per step — written to a fixed depth if wanted.

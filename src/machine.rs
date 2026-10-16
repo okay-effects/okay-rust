@@ -270,6 +270,8 @@ fn passing(stack: &[Segment], from: usize, mut op: Op) -> (Op, Vec<Rc<dyn Fn()>>
 
 fn steps(stack: &mut Vec<Segment>, pool: &mut Pool, hole: &Rc<dyn Any>, cur: Kind) -> Outcome {
     let mut cur = cur;
+    // a guard with a passing made: read once, not at each operation — and set when one is entered
+    let mut passing_guards = PASSING.with(Cell::get);
     loop {
         cur = match cur {
             Kind::Return(v) => {
@@ -305,7 +307,7 @@ fn steps(stack: &mut Vec<Segment>, pool: &mut Pool, hole: &Rc<dyn Any>, cur: Kin
             Kind::Then(v, f) => f.call(v).0,
             Kind::Inject(op, f) => {
                 let found = stack.iter().rposition(|s| s.level.catches(op.effect));
-                let op = if PASSING.with(Cell::get) {
+                let op = if passing_guards {
                     let (op, back) = passing(stack, found.map_or(0, |i| i + 1), op);
                     if !back.is_empty() {
                         // the rest, then what to do at each resumption above it: frames, copied with a `k`
@@ -348,6 +350,9 @@ fn steps(stack: &mut Vec<Segment>, pool: &mut Pool, hole: &Rc<dyn Any>, cur: Kin
                 }
             }
             Kind::Handle(body, level) => {
+                if let Level::Guard(g) = &level {
+                    passing_guards |= g.passing.is_some();
+                }
                 stack.push(Segment { level, frames: Vec::new() });
                 body.0
             }
@@ -368,7 +373,7 @@ fn steps(stack: &mut Vec<Segment>, pool: &mut Pool, hole: &Rc<dyn Any>, cur: Kin
                 // the nearest level of the effect, or an observer before it; none in the program — an effect of the row
                 // outside it: the host's, given back with the rest, every level
                 let found = stack.iter().rposition(|s| s.level.catches(op.effect));
-                let op = if PASSING.with(Cell::get) {
+                let op = if passing_guards {
                     let (op, back) = passing(stack, found.map_or(0, |i| i + 1), op);
                     if !back.is_empty()
                         && let Some(top) = stack.last_mut() {
@@ -442,6 +447,7 @@ fn steps(stack: &mut Vec<Segment>, pool: &mut Pool, hole: &Rc<dyn Any>, cur: Kin
 }
 
 /// an operation to the level `i` that catches it
+#[inline(always)]
 fn perform_at(stack: &mut Vec<Segment>, pool: &mut Pool, hole: &Rc<dyn Any>, i: usize, op: Op) -> Kind {
     match &mut stack[i].level {
         Level::Answering(_, rt) => Kind::Return((rt.value)(op.value)),
