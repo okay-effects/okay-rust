@@ -65,7 +65,7 @@ fn lazy_the_body_runs_as_far_as_pulled_a_rest_pulled_again_run_again() {
 fn other_effects_handled_in_the_body_a_reader() {
     type R = row![Reader<i64>, Emit<i64>];
     let reading = ask::<i64, R, _>()
-        .flat_map(|n| emit::<i64, R, _>(n))
+        .flat_map(emit::<i64, R, _>)
         .flat_map(|_| ask::<i64, R, _>().flat_map(|n| emit::<i64, R, _>(n * 2)));
     assert_eq!(take(stream(reading.handle(reader(5))), 10), vec![5, 10]);
 }
