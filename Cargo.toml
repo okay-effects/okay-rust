@@ -1,0 +1,13 @@
+[package]
+name = "okay-effects"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Algebraic effects for Rust on async/await: capabilities, handlers, the kernel's protocol, middleware, steps over okay's wire"
+license = "Apache-2.0"
+repository = "https://github.com/sergey-scherbina/okay-rust"
+
+[dependencies]
+
+[workspace]
+members = ["examples/shop"]
