@@ -4,7 +4,7 @@ use crate::eff::{perform, pure, Eff, Never, Reply};
 use crate::handler::{Handler, K};
 use std::fmt::Debug;
 
-use crate::row::{Effect, Member, Plain};
+use crate::row::{Cons, Effect, Member, Plain};
 
 // READER: a value asked
 
@@ -215,6 +215,59 @@ pub fn collect_emitted<W: Clone + Debug + 'static, T, A: 'static>() -> Handler<E
             r.give(())
         }
     }, |s, a| (s, a))
+}
+
+// SHIFTS: delimited control as an effect of the row — its answer `S` fixed, `T` the row outside its `reset`;
+// `shift0`'s body outside the reset, `shift`'s under it (Danvy–Filinski's)
+
+/// an erased rest of a shift: its value in, the program up to the reset out
+type ShiftK<T, S> = std::rc::Rc<dyn Fn(crate::eff::Val) -> Eff<T, S>>;
+
+pub struct Shifts<S, T> {
+    body: std::rc::Rc<dyn Fn(ShiftK<T, S>) -> Eff<T, S>>,
+    resume: std::rc::Rc<dyn Fn(&K<T, S>, crate::eff::Val) -> Eff<T, S>>,
+}
+
+impl<S, T> Clone for Shifts<S, T> {
+    fn clone(&self) -> Self {
+        Shifts { body: self.body.clone(), resume: self.resume.clone() }
+    }
+}
+
+impl<S, T> Debug for Shifts<S, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Shift0(_)")
+    }
+}
+
+impl<S: 'static, T: 'static> Effect for Shifts<S, T> {
+    type Kind = Plain;
+}
+
+/// SHIFT0: the rest up to the nearest `reset` taken as `k`, the body run outside the reset — its answer the reset's
+pub fn shift0<S: 'static, T: 'static, A: Clone + Debug + 'static, R: Member<Shifts<S, T>, Ix>, Ix>(
+    f: impl Fn(std::rc::Rc<dyn Fn(A) -> Eff<T, S>>) -> Eff<T, S> + 'static,
+) -> Eff<R, A> {
+    let f = std::rc::Rc::new(f);
+    perform(move |r: Reply<A>| Shifts {
+        body: std::rc::Rc::new(move |k: ShiftK<T, S>| f(std::rc::Rc::new(move |a: A| k(crate::eff::Val::new(a))))),
+        resume: std::rc::Rc::new(move |k: &K<T, S>, v: crate::eff::Val| r.resume(k, v.take::<A>())),
+    })
+}
+
+/// SHIFT: as `shift0`, the body run under the reset — a shift in it captures up to the same reset
+pub fn shift<S: 'static, T: 'static, A: Clone + Debug + 'static, R: Member<Shifts<S, T>, Ix>, Ix>(
+    f: impl Fn(std::rc::Rc<dyn Fn(A) -> Eff<T, S>>) -> Eff<Cons<Shifts<S, T>, T>, S> + 'static,
+) -> Eff<R, A> {
+    shift0(move |k| f(k).handle(reset::<S, T>()))
+}
+
+/// THE RESET of `Shifts<S, T>`: a shift's body given the rest up to it
+pub fn reset<S: 'static, T: 'static>() -> Handler<Shifts<S, T>, T, S, S> {
+    Handler::deep(pure, |op: Shifts<S, T>, k| {
+        let resume = op.resume.clone();
+        (op.body)(std::rc::Rc::new(move |v| resume(&k, v)))
+    })
 }
 
 // OVER THE WIRE: the standard effects' operations by name, their arguments a record

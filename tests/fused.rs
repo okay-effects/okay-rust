@@ -1,5 +1,5 @@
 //! okay-core's TestFused, its behaviour: many maps in constant stack, a panic in the middle of a chain stops the maps
-//! after it (how maps are kept is the machine's own; the test of a shift under maps waits for stage 2's control)
+//! after it, a shift under many maps (how maps are kept is the machine's own)
 
 use std::cell::Cell;
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -26,4 +26,18 @@ fn a_panic_in_the_middle_of_a_chain_out_of_the_run_the_maps_after_it_not_run() {
         .map(move |x| { a.set(true); x });
     assert!(catch_unwind(AssertUnwindSafe(|| p.run())).is_err());
     assert!(!after.get());
+}
+
+#[test]
+fn a_shift_under_many_maps_k_the_maps_each_resumption_all_of_them() {
+    use okay::effects::{reset, shift, Shifts};
+    type SR = row![Shifts<i64, Nil>];
+    let mut p: Eff<SR, i64> = shift::<i64, Nil, i64, SR, _>(|k| {
+        let k2 = k.clone();
+        k(1).flat_map(move |a| k2(10).map(move |b| a + b)).widen()
+    });
+    for _ in 0..50 {
+        p = p.map(|x| x + 1);
+    }
+    assert_eq!(p.handle(reset()).run(), (1 + 50) + (10 + 50));
 }

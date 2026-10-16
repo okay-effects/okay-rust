@@ -318,6 +318,14 @@ impl<R, A: 'static> Eff<R, A> {
     }
 }
 
+impl<R, A> Eff<R, A> {
+    /// the same program over the row with `E` first: it performs none of `E`, so it is one of that row too (an
+    /// operation finds its handler by its effect, not by its place)
+    pub fn widen<E>(self) -> Eff<crate::row::Cons<E, R>, A> {
+        Eff::of(self.node.0)
+    }
+}
+
 pub(crate) fn no_copy(_: &Val) -> Val {
     unreachable!("okay: a recovering guard keeps no value")
 }
