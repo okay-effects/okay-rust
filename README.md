@@ -1,5 +1,7 @@
 # okay-rust
 
+[![CI](https://github.com/sergey-scherbina/okay-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/sergey-scherbina/okay-rust/actions/workflows/ci.yml)
+
 [okay](https://github.com/sergey-scherbina/okay)'s algebraic effects in Rust, no dependencies, two crates:
 
 | crate | what |
