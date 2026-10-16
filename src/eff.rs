@@ -36,6 +36,19 @@ pub(crate) enum Kind {
     Resume(crate::machine::K0, Val),
     /// a program made when the run gets to it
     Defer(Rc<dyn Fn() -> Node>),
+    /// a failure raised here: the levels unwound — each guard's finalizer run, the nearest recover given it
+    Raise(Failure),
+    /// cancelled here: the levels unwound — each finalizer run, no recover asked
+    Cancel,
+    /// an aborting handler's finalizers done: its level left, its program in place of the body's
+    Leave(Rc<crate::machine::AbortingRt>, Op),
+    /// a rest given back to a host, failed: its levels put back, the failure raised in them — `true`: the frame on
+    /// top dropped first (a translating clause's, waiting for an answer that will not come)
+    Fail(crate::machine::K0, Failure, bool),
+    /// an operation already told to the guards it passes: to its handler
+    Passed(Op),
+    /// a rest given back to a host, cancelled: its levels put back, cancelled in them
+    CancelK(crate::machine::K0),
 }
 
 /// AN OPERATION ERASED, with what an observer needs of it: its effect, a description, a copy — and of its answer the
@@ -262,6 +275,92 @@ impl<R, A: 'static> Eff<R, A> {
     }
 }
 
+impl<R, A: 'static> Eff<R, A> {
+    /// ENSURING: `fin` run when this program is left — with its value (kept), a failure (raised on after it), an abort
+    /// past it, a cancel. Under a rest resumed twice, twice
+    pub fn ensure(self, fin: impl Fn() -> Eff<R, ()> + 'static) -> Eff<R, A>
+    where
+        A: Clone,
+    {
+        let g = crate::machine::GuardRt {
+            finalizer: Some(Rc::new(move || fin().node)),
+            recover: None,
+            passing: None,
+            copy: copy_as::<A>,
+        };
+        Eff::of(Kind::Handle(Box::new(self.node), crate::machine::Level::Guard(Rc::new(g))))
+    }
+
+    /// RECOVERING: a failure raised in this program — user code's panic, a host's `fail` — given to `f`, its program in
+    /// place of this one's. Not an effect's raise (`Throws`): that is its handler's
+    pub fn recover(self, f: impl Fn(Failure) -> Eff<R, A> + 'static) -> Eff<R, A> {
+        let g = crate::machine::GuardRt {
+            finalizer: None,
+            recover: Some(Box::new(move |e| f(e).node)),
+            passing: None,
+            copy: no_copy,
+        };
+        Eff::of(Kind::Handle(Box::new(self.node), crate::machine::Level::Guard(Rc::new(g))))
+    }
+
+    /// UNCANCELABLE: a cancel asked inside waits for this program to be left
+    pub fn uncancelable(self) -> Eff<R, A> {
+        Eff::of(Kind::Handle(Box::new(self.node), crate::machine::Level::Mask(Rc::new(std::cell::Cell::new(false)))))
+    }
+
+    /// GUARDED by `g`: its finalizer when left, its passing told of each operation going out
+    pub fn guard(self, g: Guard<R, A>) -> Eff<R, A>
+    where
+        A: Clone,
+    {
+        let rt = crate::machine::GuardRt { finalizer: g.finalizer, recover: None, passing: g.passing, copy: copy_as::<A> };
+        Eff::of(Kind::Handle(Box::new(self.node), crate::machine::Level::Guard(Rc::new(rt))))
+    }
+}
+
+pub(crate) fn no_copy(_: &Val) -> Val {
+    unreachable!("okay: a recovering guard keeps no value")
+}
+
+/// what a guard's passing gives back: the operation sent in its place, and what to do each time its answer comes back
+pub type PassingOut = (AnyOp, Option<Rc<dyn Fn()>>);
+
+/// A GUARD: a finalizer, run when the program under it is left; a passing, told of each operation going out of it —
+/// its own effect or another's — and sending one in its place
+pub struct Guard<R, A> {
+    finalizer: Option<Rc<dyn Fn() -> Node>>,
+    passing: Option<crate::machine::Passing>,
+    _t: PhantomData<fn() -> (R, A)>,
+}
+
+impl<R, A> Default for Guard<R, A> {
+    fn default() -> Self {
+        Guard { finalizer: None, passing: None, _t: PhantomData }
+    }
+}
+
+impl<R, A> Guard<R, A> {
+    pub fn new() -> Self {
+        Guard::default()
+    }
+
+    /// run when the program under it is left
+    pub fn finalizer(mut self, fin: impl Fn() -> Eff<R, ()> + 'static) -> Self {
+        self.finalizer = Some(Rc::new(move || fin().node));
+        self
+    }
+
+    /// told of each operation going out: the one sent in its place, and what to do at each resumption
+    pub fn passing(mut self, f: impl Fn(AnyOp) -> PassingOut + 'static) -> Self {
+        crate::machine::PASSING.with(|p| p.set(true));
+        self.passing = Some(Rc::new(move |op: Op| {
+            let (o, back) = f(AnyOp(op));
+            (o.0, back)
+        }));
+        self
+    }
+}
+
 impl<A: 'static> Eff<Nil, A> {
     /// the value: a program of no effect run
     pub fn run(self) -> A {
@@ -358,6 +457,17 @@ impl AnyOp {
     /// the operation as written: `Put(6, _)`
     pub fn describe(&self) -> String {
         (self.0.info.describe)(&self.0.value)
+    }
+
+    /// the operation, if it is of the effect `E`
+    pub fn op<E: Effect>(&self) -> Option<E> {
+        (self.0.effect == TypeId::of::<E>()).then(|| (self.0.info.copy)(&self.0.value).take::<E>())
+    }
+
+    /// another operation of the same effect in its place (a guard's passing): of another effect, refused
+    pub fn with<E: Effect>(&self, e: E) -> AnyOp {
+        assert_eq!(self.0.effect, TypeId::of::<E>(), "okay: an operation replaced by one of another effect");
+        AnyOp(Op { effect: self.0.effect, info: self.0.info, value: Val::new(e) })
     }
 
     /// passed on, to the handler further out: its answer to the rest `k`

@@ -38,12 +38,14 @@ impl<R, A: Debug + 'static> Debug for Step<R, A> {
 pub struct Yield<R, A> {
     op: Op,
     k: K0,
+    /// cancelled under an uncancelable region: the cancel fires when the region is left
+    cancelling: bool,
     _t: PhantomData<fn() -> (R, A)>,
 }
 
 impl<R, A> Clone for Yield<R, A> {
     fn clone(&self) -> Self {
-        Yield { op: self.op.clone(), k: self.k.clone(), _t: PhantomData }
+        Yield { op: self.op.clone(), k: self.k.clone(), cancelling: self.cancelling, _t: PhantomData }
     }
 }
 
@@ -67,12 +69,17 @@ impl<R, A: 'static> Yield<R, A> {
     /// kept: resumed again, each resumption its own
     pub fn resume(&self, a: Answer) -> Step<R, A> {
         let k = self.k.clone();
+        if self.cancelling {
+            k.pend_cancel();
+        }
         guarded(move || machine::resume(k, a.0))
     }
 
-    /// the operation answered with a failure, raised where it was performed
+    /// the operation answered with a failure, raised where it was performed — in the rest's levels, a recover there
+    /// given it, each finalizer run on the way out
     pub fn fail(&self, f: Failure) -> Step<R, A> {
-        outcome(machine::fail(self.k.clone(), f))
+        let k = self.k.clone();
+        guarded(move || machine::fail(k, f))
     }
 
     pub(crate) fn effect_id(&self) -> std::any::TypeId {
@@ -83,9 +90,14 @@ impl<R, A: 'static> Yield<R, A> {
         &self.op
     }
 
-    /// dropped: the rest is not resumed
+    /// CANCELLED: the rest's finalizers run, no recover asked — `Cancelled`. Under an uncancelable region the same
+    /// step is given back, to be resumed: the cancel fires when the region is left
     pub fn cancel(self) -> Step<R, A> {
-        Step::Cancelled
+        if self.k.masked() {
+            return Step::Yield(Yield { cancelling: true, ..self });
+        }
+        let k = self.k;
+        guarded(move || machine::cancel(k))
     }
 
 }
@@ -93,8 +105,9 @@ impl<R, A: 'static> Yield<R, A> {
 fn outcome<R, A: 'static>(o: Outcome) -> Step<R, A> {
     match o {
         Outcome::Done(v) => Step::Done(v.take::<A>()),
-        Outcome::Asked(op, k) => Step::Yield(Yield { op, k, _t: PhantomData }),
+        Outcome::Asked(op, k) => Step::Yield(Yield { op, k, cancelling: false, _t: PhantomData }),
         Outcome::Failed(f) => Step::Failed(f),
+        Outcome::Cancelled => Step::Cancelled,
     }
 }
 

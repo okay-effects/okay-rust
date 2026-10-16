@@ -90,6 +90,34 @@ impl<E: Effect, T, A: 'static, B: 'static> Handler<E, T, A, B> {
     }
 }
 
+impl<E: Effect, T, A: 'static> Handler<E, T, A, A> {
+    /// TRANSLATING: each operation answered by a program over the row outside (`r.give(x)` at its end) — the rest
+    /// resumed once with it; a failure in that program raised where the operation was, inside the body, so the body's
+    /// own recover sees it
+    pub fn translating(apply: impl Fn(E) -> Eff<T, Answer> + 'static) -> Self {
+        let rt = DeepRt {
+            ret: Box::new(|v: Val| Node(crate::eff::Kind::Return(v))),
+            apply: Box::new(move |op: Val, k: K0| -> Node {
+                use crate::eff::Kind;
+                let program = apply(op.take::<E>()).node;
+                let back = k.clone();
+                let fail = crate::machine::GuardRt {
+                    finalizer: None,
+                    recover: Some(Box::new(move |f| Node(Kind::Fail(k.clone(), f, true)))),
+                    passing: None,
+                    copy: crate::eff::no_copy,
+                };
+                let guarded = Node(Kind::Handle(Box::new(program), Level::Guard(Rc::new(fail))));
+                Node(Kind::Bind(
+                    Box::new(guarded),
+                    crate::eff::Frame::new(move |a: Val| Node(Kind::Resume(back.clone(), a.take::<Answer>().0))),
+                ))
+            }),
+        };
+        Handler { level: Level::Deep(TypeId::of::<E>(), Rc::new(rt)), _t: PhantomData }
+    }
+}
+
 /// AN INTERCEPTOR of the sensitive effect `S`: its clauses given each operation, the rest `k`, and the way on
 /// (`Pass`) — over the row `T` outside the audit, `Audited<S>` in it; `ret` of the body's value
 pub struct Interceptor<S, T, A, B> {

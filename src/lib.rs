@@ -50,7 +50,7 @@ pub mod direct;
 pub mod typed;
 pub mod wire;
 
-pub use eff::{defer, perform, pure, tail_rec, Loop, Answer, AnyOp, Bind, Eff, Failure, Never, Node, Pass, Program, Reply};
+pub use eff::{defer, perform, pure, tail_rec, Loop, Answer, AnyOp, Bind, Eff, Failure, Guard, Never, Node, Pass, PassingOut, Program, Reply};
 pub use step::{Step, Yield};
 pub use data::{Data, IsData};
 pub use handler::{Handler, Interceptor, Observer, K};
