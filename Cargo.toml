@@ -1,0 +1,23 @@
+[package]
+name = "okay-rust"
+version = "0.1.0"
+edition = "2024"
+description = "okay in Rust: okay-core's kernel (a program of effects as data, rows, handlers not tied to the monad, k as data, interceptors) and okay-effects (capabilities on async/await, the kernel's protocol, middleware, okay's wire)"
+license = "Apache-2.0"
+repository = "https://github.com/sergey-scherbina/okay-rust"
+
+[lib]
+name = "okay"
+
+[dependencies]
+
+[workspace]
+members = ["effects", "examples/shop"]
+
+[[bench]]
+name = "kernel"
+harness = false
+
+[profile.release]
+codegen-units = 1
+lto = true
