@@ -35,6 +35,7 @@
 //! let p: Eff<row![Reader<i64>], i64> = get::<i64, _, _>();
 //! ```
 
+pub mod cont;
 pub mod data;
 pub mod effects;
 pub mod guarantees;
@@ -55,9 +56,10 @@ pub mod wire;
 
 pub use eff::{defer, perform, pure, tail_rec, Loop, Answer, AnyOp, Bind, Eff, Failure, Guard, Never, Node, Pass, PassingOut, Program, Reply};
 pub use step::{Step, Yield};
+pub use cont::{dollar, pure_c, Cont, Over, Passing, K1};
 pub use data::{Data, IsData};
 pub use handler::{Handler, Interceptor, Observer, K};
-pub use row::{AuditAll, Audited, Cons, Effect, Here, Kind, Mark, MarkKind, Member, Nil, Plain, PlainKind, Sensitive, There};
+pub use row::{AuditAll, Audited, Cons, Control, Delim, Effect, Nearest, Reset, Here, Kind, Mark, MarkKind, Member, Nil, Plain, PlainKind, Sensitive, There};
 
 /// A TAIL CALL: `call!(f(a, b))` — `f(a, b)` made when the machine gets to it, not now; so functions calling each
 /// other in tail position (`is_even` → `is_odd` → …) run in constant stack, however deep. The arguments are evaluated

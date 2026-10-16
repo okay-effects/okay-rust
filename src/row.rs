@@ -118,6 +118,27 @@ impl<E> MarkKind<E> for Sensitive {
     type Out = Audited<E>;
 }
 
+/// A `$` IN THE ROW: delimited control over the row `T` outside it — `Delim<T>` is the row of a program under a `$`
+/// (okay-core's `Control[T] +: T`). Not an effect: no handler takes it, an operation passes it, a shift0 stops at it
+pub struct Control<T>(PhantomData<fn() -> T>);
+
+/// the row under a `$` over `T`
+pub type Delim<T> = Cons<Control<T>, T>;
+
+/// the row under a `$` over no effect
+pub type Reset = Delim<Nil>;
+
+/// THE NEAREST `$` in the row `Self`, over `T`, at `Ix` — past effects, never past another `$`
+#[diagnostic::on_unimplemented(
+    message = "a shift0 only under a `$`: no `$` over `{T}` is the nearest in the row `{Self}`",
+    label = "no `$` here"
+)]
+pub trait Nearest<T, Ix> {}
+
+impl<T> Nearest<T, Here> for Cons<Control<T>, T> {}
+
+impl<E: Effect, R: Nearest<T, Ix>, T, Ix> Nearest<T, There<Ix>> for Cons<E, R> {}
+
 /// `row![A, B, C]`: `Cons<A, Cons<B, Cons<C, Nil>>>`
 #[macro_export]
 macro_rules! row {

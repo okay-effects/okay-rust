@@ -47,6 +47,8 @@ pub(crate) enum Kind {
     Fail(crate::machine::K0, Failure, bool),
     /// an operation already told to the guards it passes: to its handler
     Passed(Op),
+    /// a shift0: the rest up to the nearest `$`, the `$` with it, taken as `k`; the body's program run outside
+    Shift0(Rc<dyn Fn(crate::machine::K0) -> Node>),
     /// a rest given back to a host, cancelled: its levels put back, cancelled in them
     CancelK(crate::machine::K0),
 }

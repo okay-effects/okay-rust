@@ -73,6 +73,8 @@ pub(crate) enum Level {
     Guard(Rc<GuardRt>),
     /// uncancelable: a cancel asked inside waits for it to be left — `true` once one is pending
     Mask(Rc<Cell<bool>>),
+    /// a `$`: its body's value through `ret`, a program run below it; a shift0's delimiter
+    Dollar(Rc<dyn Fn(Val) -> Node>),
 }
 
 impl Level {
@@ -82,7 +84,7 @@ impl Level {
             Level::Top => false,
             Level::Answering(f, _) | Level::Stateful(f, _, _) | Level::Deep(f, _) | Level::Aborting(f, _) => *f == e,
             Level::Observe(_) => true,
-            Level::Guard(_) | Level::Mask(_) => false,
+            Level::Guard(_) | Level::Mask(_) | Level::Dollar(_) => false,
         }
     }
 }
@@ -290,6 +292,7 @@ fn steps(stack: &mut Vec<Segment>, pool: &mut Pool, hole: &Rc<dyn Any>, cur: Kin
                             }
                         },
                         Some(Level::Mask(pending)) => if pending.get() { Kind::Cancel } else { Kind::Return(v) },
+                        Some(Level::Dollar(ret)) => ret(v).0,
                     },
                 }
             }
@@ -347,6 +350,13 @@ fn steps(stack: &mut Vec<Segment>, pool: &mut Pool, hole: &Rc<dyn Any>, cur: Kin
             Kind::Handle(body, level) => {
                 stack.push(Segment { level, frames: Vec::new() });
                 body.0
+            }
+            Kind::Shift0(f) => {
+                let Some(i) = stack.iter().rposition(|s| matches!(s.level, Level::Dollar(_))) else {
+                    panic!("okay: a shift0 with no $ around — a row not checked")
+                };
+                let k = K0::take(stack, i, pool);
+                f(k).0
             }
             Kind::Passed(op) => {
                 let Some(i) = stack.iter().rposition(|s| s.level.catches(op.effect)) else {
@@ -473,6 +483,6 @@ fn perform_at(stack: &mut Vec<Segment>, pool: &mut Pool, hole: &Rc<dyn Any>, i: 
             let k = K0::take(stack, i, pool);
             (rt.apply)(op, k).0
         }
-        Level::Top | Level::Guard(_) | Level::Mask(_) => panic!("okay: a level of no effect caught one"),
+        Level::Top | Level::Guard(_) | Level::Mask(_) | Level::Dollar(_) => panic!("okay: a level of no effect caught one"),
     }
 }
