@@ -36,6 +36,10 @@ pub(crate) enum Kind {
     Resume(crate::machine::K0, Val),
     /// a program made when the run gets to it
     Defer(Rc<dyn Fn() -> Node>),
+}
+
+/// the machine's rare nodes: failures, cancels, control's
+pub(crate) enum Rare {
     /// a failure raised here: the levels unwound — each guard's finalizer run, the nearest recover given it
     Raise(Failure),
     /// cancelled here: the levels unwound — each finalizer run, no recover asked
@@ -51,6 +55,15 @@ pub(crate) enum Kind {
     Shift0(Rc<dyn Fn(crate::machine::K0) -> Node>),
     /// a rest given back to a host, cancelled: its levels put back, cancelled in them
     CancelK(crate::machine::K0),
+}
+
+/// a rare node as a node: a `Handle` of a level that is no level (`Level::Rare`) — so `Kind` keeps the variants it had:
+/// a variant of its own (a value, or each rare node one) made the machine's loop 10–20% slower, measured
+pub(crate) fn rare(r: Rare) -> Kind {
+    Kind::Handle(
+        Box::new(Node(Kind::Return(Val::new(())))),
+        crate::machine::Level::Rare(Rc::new(std::cell::RefCell::new(Some(r)))),
+    )
 }
 
 /// AN OPERATION ERASED, with what an observer needs of it: its effect, a description, a copy — and of its answer the

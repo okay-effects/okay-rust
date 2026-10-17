@@ -9,7 +9,7 @@ use std::cell::{Cell, RefCell};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::rc::Rc;
 
-use crate::eff::{Failure, Frame, Kind, Node, Op, Val};
+use crate::eff::{rare, Failure, Frame, Kind, Node, Op, Rare, Val};
 
 pub(crate) struct AnsweringRt {
     pub(crate) value: Box<dyn Fn(Val) -> Val>,
@@ -55,6 +55,8 @@ pub(crate) struct GuardRt {
 }
 
 thread_local! {
+    /// a guard or a mask was entered in this thread: runs from now on in the guarded loop (a rest may hold one)
+    pub(crate) static GUARDED: Cell<bool> = const { Cell::new(false) };
     /// a guard with a passing was made: operations look for one on their way out (none made, no look)
     pub(crate) static PASSING: Cell<bool> = const { Cell::new(false) };
 }
@@ -75,16 +77,19 @@ pub(crate) enum Level {
     Mask(Rc<Cell<bool>>),
     /// a `$`: its body's value through `ret`, a program run below it; a shift0's delimiter
     Dollar(Rc<dyn Fn(Val) -> Node>),
+    /// not a level: a rare node (a raise, a cancel, control's), carried by a `Handle` and taken at once
+    Rare(Rc<RefCell<Option<Rare>>>),
 }
 
 impl Level {
     /// the operations of `e` stop here: a handler of `e`, or an observer
+    #[inline(always)]
     fn catches(&self, e: TypeId) -> bool {
         match self {
             Level::Top => false,
             Level::Answering(f, _) | Level::Stateful(f, _, _) | Level::Deep(f, _) | Level::Aborting(f, _) => *f == e,
             Level::Observe(_) => true,
-            Level::Guard(_) | Level::Mask(_) | Level::Dollar(_) => false,
+            Level::Guard(_) | Level::Mask(_) | Level::Dollar(_) | Level::Rare(_) => false,
         }
     }
 }
@@ -143,6 +148,8 @@ pub(crate) enum Outcome {
     Asked(Op, K0),
     Failed(Failure),
     Cancelled,
+    /// the fast loop met a guard: go on in the guarded one, from this node
+    Guarded(Kind),
 }
 
 /// a program of no effect run to its value
@@ -152,6 +159,7 @@ pub(crate) fn run(node: Node) -> Val {
         Outcome::Asked(..) => panic!("okay: an operation with no handler — a row not checked"),
         Outcome::Failed(f) => std::panic::resume_unwind(f.0),
         Outcome::Cancelled => panic!("okay: a program cancelled itself with no host"),
+        Outcome::Guarded(_) => unreachable!("the guarded loop goes on itself"),
     }
 }
 
@@ -167,12 +175,12 @@ pub(crate) fn resume(k: K0, v: Val) -> Outcome {
 
 /// a rest given back to a host, failed: `f` raised where the operation was, in its levels — their guards asked
 pub(crate) fn fail(k: K0, f: Failure) -> Outcome {
-    drive(Vec::new(), Kind::Fail(k, f, false), false)
+    drive(Vec::new(), rare(Rare::Fail(k, f, false)), false)
 }
 
 /// a rest given back to a host, cancelled: its finalizers run, no recover asked
 pub(crate) fn cancel(k: K0) -> Outcome {
-    drive(Vec::new(), Kind::CancelK(k), false)
+    drive(Vec::new(), rare(Rare::CancelK(k)), false)
 }
 
 impl K0 {
@@ -214,14 +222,40 @@ fn drive(mut stack: Vec<Segment>, cur: Kind, top: bool) -> Outcome {
     if top {
         stack.push(Segment { level: Level::Top, frames: Vec::new() });
     }
-    // in a state's place while it is moved: the state taken out, so that no one else holds it and it is written in place
+    if !GUARDED.with(Cell::get) {
+        // no guard yet: the loop on its own locals, in a function of its own — no `catch_unwind` taking their address
+        return match fast(stack, cur) {
+            Ok(o) => o,
+            Err(go_on) => {
+                let (stack, pool, next) = *go_on;
+                guarded(stack, pool, next)
+            }
+        };
+    }
+    guarded(stack, Vec::new(), cur)
+}
+
+/// the loop with no guard: its stack and pool locals of its own; a guard met, both given back with the node to go on
+#[inline(never)]
+#[allow(clippy::type_complexity)]
+fn fast(mut stack: Vec<Segment>, cur: Kind) -> Result<Outcome, Box<(Vec<Segment>, Pool, Kind)>> {
     let hole: Rc<dyn Any> = Rc::new(());
     let mut pool: Pool = Vec::new();
+    match steps_in::<true>(&mut stack, &mut pool, &hole, cur) {
+        Outcome::Guarded(next) => Err(Box::new((stack, pool, next))),
+        o => Ok(o),
+    }
+}
+
+/// the loop under `catch_unwind`: a panic a `Raise` where it happened, the levels unwound with their guards
+fn guarded(mut stack: Vec<Segment>, mut pool: Pool, cur: Kind) -> Outcome {
+    // in a state's place while it is moved: the state taken out, so that no one else holds it and it is written in place
+    let hole: Rc<dyn Any> = Rc::new(());
     let mut cur = cur;
     loop {
         match catch_unwind(AssertUnwindSafe(|| steps(&mut stack, &mut pool, &hole, cur))) {
             Ok(o) => return o,
-            Err(p) => cur = Kind::Raise(Failure(p)),
+            Err(p) => cur = rare(Rare::Raise(Failure(p))),
         }
     }
 }
@@ -249,7 +283,7 @@ fn again(f: Failure) -> Rc<dyn Fn() -> Kind> {
     Rc::new(move || {
         let taken = once.borrow_mut().take();
         let msg = || Failure::new(String::from("okay: a failure raised again by a finalizer resumed twice"));
-        Kind::Raise(taken.unwrap_or_else(msg))
+        rare(Rare::Raise(taken.unwrap_or_else(msg)))
     })
 }
 
@@ -269,9 +303,18 @@ fn passing(stack: &[Segment], from: usize, mut op: Op) -> (Op, Vec<Rc<dyn Fn()>>
 }
 
 fn steps(stack: &mut Vec<Segment>, pool: &mut Pool, hole: &Rc<dyn Any>, cur: Kind) -> Outcome {
+    steps_in::<false>(stack, pool, hole, cur)
+}
+
+/// THE LOOP. `FAST`: no guard in this thread yet — the loop on its own locals, a panic out of it (no guard to ask, so
+/// the same as unwinding every level to the top); a guard or a mask entered, the loop handed to the guarded one, the
+/// stack as it is
+#[inline(always)]
+fn steps_in<const FAST: bool>(stack: &mut Vec<Segment>, pool: &mut Pool, hole: &Rc<dyn Any>, cur: Kind) -> Outcome {
     let mut cur = cur;
-    // a guard with a passing made: read once, not at each operation — and set when one is entered
-    let mut passing_guards = PASSING.with(Cell::get);
+    // a guard with a passing made: read once, not at each operation — and set when one is entered (none in the fast
+    // loop: a guard entered hands it to the guarded one)
+    let mut passing_guards = !FAST && PASSING.with(Cell::get);
     loop {
         cur = match cur {
             Kind::Return(v) => {
@@ -286,15 +329,7 @@ fn steps(stack: &mut Vec<Segment>, pool: &mut Pool, hole: &Rc<dyn Any>, cur: Kin
                         Some(Level::Deep(_, rt)) => (rt.ret)(v).0,
                         Some(Level::Aborting(_, rt)) => (rt.ret)(v).0,
                         Some(Level::Observe(rt)) => (rt.ret)(v).0,
-                        Some(Level::Guard(g)) => match &g.finalizer {
-                            None => Kind::Return(v),
-                            Some(fin) => {
-                                let (v, copy) = (Rc::new(v), g.copy);
-                                then(fin(), move || Kind::Return(copy(&v)))
-                            }
-                        },
-                        Some(Level::Mask(pending)) => if pending.get() { Kind::Cancel } else { Kind::Return(v) },
-                        Some(Level::Dollar(ret)) => ret(v).0,
+                        Some(level) => left(level, v),
                     },
                 }
             }
@@ -305,27 +340,9 @@ fn steps(stack: &mut Vec<Segment>, pool: &mut Pool, hole: &Rc<dyn Any>, cur: Kin
                 m.0
             }
             Kind::Then(v, f) => f.call(v).0,
+            Kind::Inject(op, f) if !FAST && passing_guards => inject_passing(stack, op, f),
             Kind::Inject(op, f) => {
-                let found = stack.iter().rposition(|s| s.level.catches(op.effect));
-                let op = if passing_guards {
-                    let (op, back) = passing(stack, found.map_or(0, |i| i + 1), op);
-                    if !back.is_empty() {
-                        // the rest, then what to do at each resumption above it: frames, copied with a `k`
-                        if let Some(top) = stack.last_mut() {
-                            top.frames.push(f);
-                            top.frames.push(Frame::new(move |v| {
-                                back.iter().for_each(|b| b());
-                                Node(Kind::Return(v))
-                            }));
-                        }
-                        cur = Kind::Passed(op);
-                        continue;
-                    }
-                    op
-                } else {
-                    op
-                };
-                let Some(i) = found else {
+                let Some(i) = stack.iter().rposition(|s| s.level.catches(op.effect)) else {
                     // none in the program: the host's — the rest, this frame first, given back with it
                     if let Some(top) = stack.last_mut() {
                         top.frames.push(f);
@@ -349,44 +366,32 @@ fn steps(stack: &mut Vec<Segment>, pool: &mut Pool, hole: &Rc<dyn Any>, cur: Kin
                     }
                 }
             }
+            Kind::Handle(_, Level::Rare(r)) => {
+                let node = r.borrow_mut().take().expect("a rare node taken once");
+                match rare_node(stack, pool, hole, node) {
+                    Ok(k) => k,
+                    Err(o) => return o,
+                }
+            }
             Kind::Handle(body, level) => {
-                if let Level::Guard(g) = &level {
-                    passing_guards |= g.passing.is_some();
+                if let Level::Guard(_) | Level::Mask(_) = &level {
+                    GUARDED.with(|g| g.set(true));
+                    if let Level::Guard(g) = &level {
+                        passing_guards |= g.passing.is_some();
+                    }
+                    if FAST {
+                        stack.push(Segment { level, frames: Vec::new() });
+                        return Outcome::Guarded(body.0);
+                    }
                 }
                 stack.push(Segment { level, frames: Vec::new() });
                 body.0
             }
-            Kind::Shift0(f) => {
-                let Some(i) = stack.iter().rposition(|s| matches!(s.level, Level::Dollar(_))) else {
-                    panic!("okay: a shift0 with no $ around — a row not checked")
-                };
-                let k = K0::take(stack, i, pool);
-                f(k).0
-            }
-            Kind::Passed(op) => {
-                let Some(i) = stack.iter().rposition(|s| s.level.catches(op.effect)) else {
-                    return Outcome::Asked(op, K0::take(stack, 0, pool));
-                };
-                perform_at(stack, pool, hole, i, op)
-            }
+            Kind::Perform(op) if !FAST && passing_guards => perform_passing(stack, op),
             Kind::Perform(op) => {
                 // the nearest level of the effect, or an observer before it; none in the program — an effect of the row
                 // outside it: the host's, given back with the rest, every level
-                let found = stack.iter().rposition(|s| s.level.catches(op.effect));
-                let op = if passing_guards {
-                    let (op, back) = passing(stack, found.map_or(0, |i| i + 1), op);
-                    if !back.is_empty()
-                        && let Some(top) = stack.last_mut() {
-                            top.frames.push(Frame::new(move |v| {
-                                back.iter().for_each(|b| b());
-                                Node(Kind::Return(v))
-                            }));
-                        }
-                    op
-                } else {
-                    op
-                };
-                let Some(i) = found else {
+                let Some(i) = stack.iter().rposition(|s| s.level.catches(op.effect)) else {
                     return Outcome::Asked(op, K0::take(stack, 0, pool));
                 };
                 perform_at(stack, pool, hole, i, op)
@@ -396,52 +401,7 @@ fn steps(stack: &mut Vec<Segment>, pool: &mut Pool, hole: &Rc<dyn Any>, cur: Kin
                 k.put(stack, pool);
                 Kind::Return(v)
             }
-            Kind::Fail(k, f, unframe) => {
-                if unframe
-                    && let Some(top) = stack.last_mut() {
-                        top.frames.pop();
-                    }
-                k.put(stack, pool);
-                Kind::Raise(f)
-            }
-            Kind::CancelK(k) => {
-                k.put(stack, pool);
-                Kind::Cancel
-            }
-            // the aborting handler's level left (its frames dropped already), its program in place of the body's
-            Kind::Leave(rt, op) => {
-                stack.pop();
-                (rt.abort)(op.value).0
-            }
-            // unwound level by level: a recover takes the failure, a finalizer runs and the failure goes on
-            Kind::Raise(f) => loop {
-                match stack.pop().map(|s| s.level) {
-                    None | Some(Level::Top) => return Outcome::Failed(f),
-                    Some(Level::Guard(g)) => {
-                        if let Some(rec) = &g.recover {
-                            break rec(f).0;
-                        }
-                        if let Some(fin) = &g.finalizer {
-                            let raise = again(f);
-                            break then(fin(), move || raise());
-                        }
-                    }
-                    // a cancel pending in an uncancelable region it fails out of: the cancel, not the failure
-                    Some(Level::Mask(pending)) if pending.get() => break Kind::Cancel,
-                    Some(_) => {}
-                }
-            },
-            Kind::Cancel => loop {
-                match stack.pop().map(|s| s.level) {
-                    None | Some(Level::Top) => return Outcome::Cancelled,
-                    Some(Level::Guard(g)) => {
-                        if let Some(fin) = &g.finalizer {
-                            break then(fin(), || Kind::Cancel);
-                        }
-                    }
-                    Some(_) => {}
-                }
-            },
+
         }
     }
 }
@@ -465,23 +425,7 @@ fn perform_at(stack: &mut Vec<Segment>, pool: &mut Pool, hole: &Rc<dyn Any>, i: 
         // finalizers of the guards dropped run first, inside its level
         Level::Aborting(_, rt) => {
             let rt = rt.clone();
-            let fins: Vec<Rc<dyn Fn() -> Node>> = stack[i + 1..]
-                .iter()
-                .rev()
-                .filter_map(|s| match &s.level {
-                    Level::Guard(g) => g.finalizer.clone(),
-                    _ => None,
-                })
-                .collect();
-            if fins.is_empty() {
-                stack.truncate(i);
-                (rt.abort)(op.value).0
-            } else {
-                stack.truncate(i + 1);
-                stack[i].frames.clear();
-                let op = Rc::new(op);
-                finalizers_then(fins, Rc::new(move || Kind::Leave(rt.clone(), (*op).clone())))
-            }
+            aborted(stack, i, rt, op)
         }
         // an observer: the rest taken as a handler's, its clause run outside it with the whole operation
         Level::Observe(rt) => {
@@ -489,6 +433,147 @@ fn perform_at(stack: &mut Vec<Segment>, pool: &mut Pool, hole: &Rc<dyn Any>, i: 
             let k = K0::take(stack, i, pool);
             (rt.apply)(op, k).0
         }
-        Level::Top | Level::Guard(_) | Level::Mask(_) | Level::Dollar(_) => panic!("okay: a level of no effect caught one"),
+        Level::Top | Level::Guard(_) | Level::Mask(_) | Level::Dollar(_) | Level::Rare(_) => panic!("okay: a level of no effect caught one"),
     }
+}
+
+/// a level of no effect left with a value: a guard's finalizer, a mask's pending cancel, a `$`'s `ret`
+#[cold]
+#[inline(never)]
+fn left(level: Level, v: Val) -> Kind {
+    match level {
+        Level::Guard(g) => match &g.finalizer {
+            None => Kind::Return(v),
+            Some(fin) => {
+                let (v, copy) = (Rc::new(v), g.copy);
+                then(fin(), move || Kind::Return(copy(&v)))
+            }
+        },
+        Level::Mask(pending) => if pending.get() { rare(Rare::Cancel) } else { Kind::Return(v) },
+        Level::Dollar(ret) => ret(v).0,
+        _ => unreachable!("a handler's level left by its own arm"),
+    }
+}
+
+/// dropping the rest: the levels from `i` up dropped, no `k` made; its program outside it — the finalizers of the
+/// guards dropped run first, inside its level
+#[inline(always)]
+fn aborted(stack: &mut Vec<Segment>, i: usize, rt: Rc<AbortingRt>, op: Op) -> Kind {
+    if !stack[i + 1..].iter().any(|s| matches!(&s.level, Level::Guard(g) if g.finalizer.is_some())) {
+        stack.truncate(i);
+        return (rt.abort)(op.value).0;
+    }
+    aborted_guarded(stack, i, rt, op)
+}
+
+#[cold]
+#[inline(never)]
+fn aborted_guarded(stack: &mut Vec<Segment>, i: usize, rt: Rc<AbortingRt>, op: Op) -> Kind {
+    let fins: Vec<Rc<dyn Fn() -> Node>> = stack[i + 1..]
+        .iter()
+        .rev()
+        .filter_map(|s| match &s.level {
+            Level::Guard(g) => g.finalizer.clone(),
+            _ => None,
+        })
+        .collect();
+    stack.truncate(i + 1);
+    stack[i].frames.clear();
+    let op = Rc::new(op);
+    finalizers_then(fins, Rc::new(move || rare(Rare::Leave(rt.clone(), (*op).clone()))))
+}
+
+/// an operation with its rest's frame through the guards with a passing it goes out past: the frame first on the
+/// top, then what to do at each resumption above it — frames, copied with a `k` — then to its handler
+#[cold]
+#[inline(never)]
+fn inject_passing(stack: &mut [Segment], op: Op, f: Frame) -> Kind {
+    if let Some(top) = stack.last_mut() {
+        top.frames.push(f);
+    }
+    perform_passing(stack, op)
+}
+
+/// an operation through the guards with a passing it goes out past, then to its handler
+#[cold]
+#[inline(never)]
+fn perform_passing(stack: &mut [Segment], op: Op) -> Kind {
+    let found = stack.iter().rposition(|s| s.level.catches(op.effect));
+    let (op, back) = passing(stack, found.map_or(0, |i| i + 1), op);
+    if !back.is_empty()
+        && let Some(top) = stack.last_mut()
+    {
+        top.frames.push(Frame::new(move |v| {
+            back.iter().for_each(|b| b());
+            Node(Kind::Return(v))
+        }));
+    }
+    rare(Rare::Passed(op))
+}
+
+/// the machine's cold nodes, out of its loop so the loop stays small: control's, a host's failure and cancel, a raise
+#[cold]
+#[inline(never)]
+fn rare_node(stack: &mut Vec<Segment>, pool: &mut Pool, hole: &Rc<dyn Any>, r: Rare) -> Result<Kind, Outcome> {
+    Ok(match r {
+        Rare::Shift0(f) => {
+            let Some(i) = stack.iter().rposition(|s| matches!(s.level, Level::Dollar(_))) else {
+                panic!("okay: a shift0 with no $ around — a row not checked")
+            };
+            let k = K0::take(stack, i, pool);
+            f(k).0
+        }
+        Rare::Passed(op) => {
+            let Some(i) = stack.iter().rposition(|s| s.level.catches(op.effect)) else {
+                return Err(Outcome::Asked(op, K0::take(stack, 0, pool)));
+            };
+            perform_at(stack, pool, hole, i, op)
+        }
+        Rare::Fail(k, f, unframe) => {
+            if unframe
+                && let Some(top) = stack.last_mut() {
+                    top.frames.pop();
+                }
+            k.put(stack, pool);
+            rare(Rare::Raise(f))
+        }
+        Rare::CancelK(k) => {
+            k.put(stack, pool);
+            rare(Rare::Cancel)
+        }
+        // the aborting handler's level left (its frames dropped already), its program in place of the body's
+        Rare::Leave(rt, op) => {
+            stack.pop();
+            (rt.abort)(op.value).0
+        }
+        // unwound level by level: a recover takes the failure, a finalizer runs and the failure goes on
+        Rare::Raise(f) => loop {
+            match stack.pop().map(|s| s.level) {
+                None | Some(Level::Top) => return Err(Outcome::Failed(f)),
+                Some(Level::Guard(g)) => {
+                    if let Some(rec) = &g.recover {
+                        break rec(f).0;
+                    }
+                    if let Some(fin) = &g.finalizer {
+                        let raise = again(f);
+                        break then(fin(), move || raise());
+                    }
+                }
+                // a cancel pending in an uncancelable region it fails out of: the cancel, not the failure
+                Some(Level::Mask(pending)) if pending.get() => break rare(Rare::Cancel),
+                Some(_) => {}
+            }
+        },
+        Rare::Cancel => loop {
+            match stack.pop().map(|s| s.level) {
+                None | Some(Level::Top) => return Err(Outcome::Cancelled),
+                Some(Level::Guard(g)) => {
+                    if let Some(fin) = &g.finalizer {
+                        break then(fin(), || rare(Rare::Cancel));
+                    }
+                }
+                Some(_) => {}
+            }
+        },
+    })
 }

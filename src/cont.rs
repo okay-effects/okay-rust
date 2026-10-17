@@ -77,7 +77,7 @@
 use std::marker::PhantomData;
 use std::rc::Rc;
 
-use crate::eff::{Bind, Eff, Frame, Kind, Node, Program, Val};
+use crate::eff::{rare, Bind, Eff, Frame, Kind, Node, Program, Rare, Val};
 use crate::handler::Handler;
 use crate::machine::Level;
 use crate::row::{Delim, Effect, Member, Nearest, PlainKind};
@@ -231,10 +231,10 @@ where
     P: Over<T> + 'static,
     O: Over<T>,
 {
-    Cont::of(Kind::Shift0(Rc::new(move |k| {
+    Cont::of(rare(Rare::Shift0(Rc::new(move |k| {
         let k: K1<A, P> = Rc::new(move |a: A| P::from_node(Node(Kind::Resume(k.clone(), Val::new(a)))));
         f(k).into_node()
-    })))
+    }))))
 }
 
 /// A `$` over `T`: `body` under it; its value through `ret`, or a shift0's body — the answer, a program over `T`

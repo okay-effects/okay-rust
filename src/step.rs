@@ -108,6 +108,7 @@ fn outcome<R, A: 'static>(o: Outcome) -> Step<R, A> {
         Outcome::Asked(op, k) => Step::Yield(Yield { op, k, cancelling: false, _t: PhantomData }),
         Outcome::Failed(f) => Step::Failed(f),
         Outcome::Cancelled => Step::Cancelled,
+        Outcome::Guarded(_) => unreachable!("the guarded loop goes on itself"),
     }
 }
 

@@ -103,7 +103,7 @@ impl<E: Effect, T, A: 'static> Handler<E, T, A, A> {
                 let back = k.clone();
                 let fail = crate::machine::GuardRt {
                     finalizer: None,
-                    recover: Some(Box::new(move |f| Node(Kind::Fail(k.clone(), f, true)))),
+                    recover: Some(Box::new(move |f| Node(crate::eff::rare(crate::eff::Rare::Fail(k.clone(), f, true))))),
                     passing: None,
                     copy: crate::eff::no_copy,
                 };

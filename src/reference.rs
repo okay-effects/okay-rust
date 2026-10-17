@@ -7,7 +7,7 @@
 
 use std::rc::Rc;
 
-use crate::eff::{Frame, Kind, Node, Op, Val};
+use crate::eff::{rare, Frame, Kind, Node, Op, Rare, Val};
 use crate::effects::*;
 use crate::machine::{K0, Level, StatefulRt};
 use crate::{row, Eff, Handler, Step};
@@ -40,11 +40,13 @@ fn norm(n: Node) -> Norm {
             Norm::Op(op, Rc::new(move |y| norm(f.copy_shared().call(y))))
         }
         Kind::Perform(op) => Norm::Op(op, Rc::new(Norm::Done)),
+        Kind::Handle(_, Level::Rare(r)) => match r.borrow_mut().take() {
+            Some(Rare::Shift0(f)) => Norm::Shifted(f, Rc::new(Norm::Done)),
+            _ => panic!("a node no program written here makes"),
+        },
         Kind::Handle(body, level) => handled(level, norm(*body)),
         Kind::Resume(k, v) => norm(k.call_fn(v)),
         Kind::Defer(p) => norm(p()),
-        Kind::Shift0(f) => Norm::Shifted(f, Rc::new(Norm::Done)),
-        _ => panic!("a node no program written here makes"),
     }
 }
 
@@ -61,7 +63,7 @@ fn reify(n: Norm) -> Node {
     match n {
         Norm::Done(v) => Node(Kind::Return(v)),
         Norm::Op(op, k) => Node(Kind::Inject(op, Frame::new(move |x| reify(k(x))))),
-        Norm::Shifted(s, k) => Node(Kind::Bind(Box::new(Node(Kind::Shift0(s))), Frame::new(move |x| reify(k(x))))),
+        Norm::Shifted(s, k) => Node(Kind::Bind(Box::new(Node(rare(Rare::Shift0(s)))), Frame::new(move |x| reify(k(x))))),
     }
 }
 
