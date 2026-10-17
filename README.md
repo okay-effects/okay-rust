@@ -559,6 +559,24 @@ Tried and not kept: the operation's two paths (in place, taking the rest) as one
 the loop — the captures faster still, the in-place lanes 10–17% slower; the frames of a bind as a list in the node (every lane but `leftMaps` 30–55% slower: a bigger node
 moved each step); frames cloned with `k` (a choice among 1000 cloned its `Vec` at each resumption, 2× slower).
 
+**Guards, control, a program stepped (2026-10-17).** What they cost the machine's lanes, found by bisecting the
+commits and A/B under JMH's lock: a new variant of `Kind` with a payload of its own — even one boxed value — made the
+loop 10–20% slower, and `catch_unwind`'s closure taking the stack's address another 15–20%. So a rare node (a raise,
+a cancel, a host's fail, control's shift0) is a `Handle` of `Level::Rare`, `Kind` as it was; and the loop is two: a
+fast one on its own locals while no guard has been entered in the thread, handing the stack to the guarded one (under
+`catch_unwind`) when one is. Against the commit before the guards, µs per run:
+
+| lane | before guards | now | |
+|---|---|---|---|
+| `pure` / `answered` / `forwarded` | 8.78 / 10.26 / 10.53 | 8.82 / 10.03 / 10.08 | +0.5% / −2.2% / −4.3% |
+| `writer` / `throwing` / `throwingK` | 11.27 / 96.37 / 129.36 | 10.74 / 94.62 / 129.39 | −4.7% / −1.8% / 0% |
+| `reads` / `state` / `stateDeep` / `choose` | 10.23 / 44.04 / 44.29 / 99.05 | 10.87 / 47.42 / 47.41 / 107.56 | +6–9% |
+| `general` / `forwardedK` / `forwardedK16` / `forwarded16` | 37.89 / 39.97 / 81.89 / 12.72 | 43.60 / 45.17 / 89.51 / 14.21 | +9–15% |
+| `stateCell` / `leftMaps` / `rightMaps` | 36.22 / 20.75 / 27.32 | 40.88 / 24.04 / 30.17 | +10–16% |
+
+The lanes left slower run code the same as before (the loop's arms the commit before's): what is left is the loop's
+layout, as in step 7 above. The typed form (`T:`) and level 1 (`D:`) unchanged.
+
 What is left: `malloc` itself — macOS's allocator is where the time goes now (with mimalloc as the global allocator
 the first port was 1.6–1.8× faster); the levels and frames of a rest copied when it is resumed many times (`choose`);
 a nested `flat_map` still a boxed node (`leftMaps`, `state`).
