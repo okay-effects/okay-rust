@@ -16,7 +16,7 @@ answering okay, run against okay's JVM host.
 cargo test --workspace
 ```
 
-This repository was okay-rs (github.com/sergey-scherbina/okay-rs, its history kept here) and okay-effects, together.
+This repository was okay-rs (github.com/okay-effects/okay-rs, its history kept here) and okay-effects, together.
 
 ---
 
