@@ -1,6 +1,6 @@
 # okay-rust
 
-[okay](https://github.com/sergey-scherbina/okay)'s algebraic effects in Rust, no dependencies, two crates:
+[okay](https://github.com/okay-effects/okay)'s algebraic effects in Rust, no dependencies, two crates:
 
 | crate | what |
 |---|---|
