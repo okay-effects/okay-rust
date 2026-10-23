@@ -43,3 +43,25 @@ date	sha	arm	host_load	lane	us_per_run	note
 2026-10-23	85a64b7	mimalloc	11.3	T:writer	0.938	median of 3 alternating rounds under JMH's lock; sbt running beside
 2026-10-23	85a64b7	mimalloc	11.3	T:throwing	5.938	median of 3 alternating rounds under JMH's lock; sbt running beside
 2026-10-23	85a64b7	mimalloc	11.3	T:choose	6.036	median of 3 alternating rounds under JMH's lock; sbt running beside
+2026-10-23	85a64b7	3510822^ system	7.7	answered	10.035	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
+2026-10-23	85a64b7	3510822^ system	7.7	state	47.189	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
+2026-10-23	85a64b7	3510822^ system	7.7	T:answered	0.280	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
+2026-10-23	85a64b7	3510822^ system	7.7	T:writer	1.154	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
+2026-10-23	85a64b7	3510822^ system	7.7	T:stateOpaque	1.996	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
+2026-10-23	85a64b7	3510822^ system	7.7	T:readsOpaque	0.316	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
+2026-10-23	85a64b7	3510822^ system	7.7	T:throwing	8.157	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
+2026-10-23	85a64b7	3510822^ system	7.7	T:generate	2.350	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
+2026-10-23	85a64b7	3510822^ system	7.7	T:choose	6.378	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
+2026-10-23	85a64b7	3510822^ system	7.7	T:intercepted	0.277	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
+2026-10-23	85a64b7	3510822^ system	7.7	T:observed	11.932	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
+2026-10-23	3510822+host	host+branches	6.9	answered	10.379	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
+2026-10-23	3510822+host	host+branches	6.9	state	48.651	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
+2026-10-23	3510822+host	host+branches	6.9	T:answered	0.281	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
+2026-10-23	3510822+host	host+branches	6.9	T:writer	1.159	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
+2026-10-23	3510822+host	host+branches	6.9	T:stateOpaque	1.978	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
+2026-10-23	3510822+host	host+branches	6.9	T:readsOpaque	0.310	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
+2026-10-23	3510822+host	host+branches	6.9	T:throwing	8.132	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
+2026-10-23	3510822+host	host+branches	6.9	T:generate	2.307	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
+2026-10-23	3510822+host	host+branches	6.9	T:choose	6.331	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
+2026-10-23	3510822+host	host+branches	6.9	T:intercepted	0.279	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
+2026-10-23	3510822+host	host+branches	6.9	T:observed	11.630	A/B: okay::host + join/race/stream; T: lanes within ±2.5%

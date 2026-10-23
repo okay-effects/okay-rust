@@ -1,8 +1,8 @@
 [package]
 name = "okay-shop"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 publish = false
 
 [dependencies]
-okay-effects = { path = "../../effects" }
+okay = { package = "okay-rust", path = "../.." }

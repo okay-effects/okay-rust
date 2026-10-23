@@ -1,5 +1,8 @@
 # okay-rust guide
 
+> This guide is okay-effects' (capabilities), SUPERSEDED (2026-10-23) by the one API — `okay::typed` and
+> `okay::host`; the README's "Handed out to a host, branches, streams" and `examples/shop` show each part on it.
+
 Every snippet is from a test or a doctest (`cargo test --workspace`).
 
 1. [Operations, capabilities, handlers](#1-operations-capabilities-handlers)

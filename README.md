@@ -5,11 +5,12 @@
 | crate | what |
 |---|---|
 | **`okay`** (the root, `src/`) | okay-core's kernel (`okay.one`) ported: a program of effects as DATA, its effects a ROW of types, handlers as values, the rest `k` resumed any number of times, INTERCEPTORS for control and audit; a program STEPPED by a host (okay-kernel's protocol) and over okay's WIRE — its `k` resumed by okay's Choice across processes; GUARDS (`ensure`, `recover`, `uncancelable`); delimited CONTROL with answer-type modification (`Cont`, `$`, `shift0`, `PState`); one API compiled by the handlers' types (`okay::typed`, async); direct style passing effects down (`okay::direct`). Checked by okay-core's own suites, a reference interpreter on random programs, okay-kernel's TCK digest; measured against Scala. |
-| **`okay-effects`** (`effects/`) | effects in plain `async` Rust with CAPABILITIES (as okay-java's `Cap`, okay-go, okay-python): a handler makes a capability, operations answered by its identity; okay-kernel's PROTOCOL (a program handed out, stepped by a host: `step`, `resume`, `fail`, `cancel`); MIDDLEWARE over every operation as data (audit, metrics, security, record, replay); every path; parallel branches (`all`, `par`, `race`: concurrent waits, a parent's capabilities answered one at a time); streams (`stream`: a producer emitting through `Cap<Emit<T>>`, pulled as an `Iterator`); and okay's WIRE both ways — a Rust program under Scala handlers, a Rust handler answering okay. ~43 M operations/s (`cargo bench -p okay-effects`). Guide: [docs/guide.md](docs/guide.md). |
+| **`okay-effects`** (`effects/`) | SUPERSEDED by `okay::typed` + `okay::host` (2026-10-23; kept for existing users, not developed): effects in plain `async` Rust with capabilities, the kernel's protocol, middleware, every path, branches, streams, the wire — each now on the one API (below: [Handed out to a host, branches, streams](#handed-out-to-a-host-branches-streams)). Guide: [docs/guide.md](docs/guide.md). |
 
-`examples/shop`: the shop of okay's examples on `okay-effects` — a `Db` effect under the inventory, payments over
-HTTP, a limit that aborts the checkout, production and test assemblies, the kernel's steps, middleware, every path,
-the wire. `examples/okayhost/TestOkayRustWire.scala`: the same shop under Scala handlers in okay, and a Rust handler
+`examples/shop`: the shop of okay's examples on the one API (`okay::typed`, `okay::host`) — one `needs!` checkout over
+its effects; a `Db` effect under the inventory, payments (sensitive) over HTTP under an interceptor, a limit ending
+the checkout, production and test assemblies, the same checkout handed out to a host: a manager, middleware, a
+recording and its replay, every path, the wire. `examples/okayhost/TestOkayRustWire.scala`: the same shop under Scala handlers in okay, and a Rust handler
 answering okay, run against okay's JVM host.
 
 ```
@@ -468,6 +469,30 @@ okay::effect! {
     }
 }
 ```
+
+### Handed out to a host, branches, streams
+
+ONE API (`specs/one-api.md`): a program is written once, as `eff!`/`needs!` over a context; what answers its effects
+is the context it is given. What okay-effects did with capabilities, the one API does with contexts:
+
+- **A capability is a context**: the one a program passes picks the handler — two instances of one effect are two
+  contexts (or one over the other, the index written: `ask_i::<_, Here>(&nested)`); a context cannot outlive its
+  handlers (a borrow: `compile_fail`). `tests/capabilities.rs`.
+- **Handed out (`okay::host`)**: `start(|host| async move { let cx = Cx(host.outside::<Inv>(), …); checkout(&cx, …).await })`
+  — each operation of an effect left `outside` stops the program as `Asked` (typed: `get::<Inv>()`; data: `name`,
+  `record`), answered by the host (`resume`, `resume_data`), failed (raised where performed), or the program
+  cancelled (dropped). A sensitive effect is outside only under its interceptor, as any handler of it:
+  `Audited::new(host.outside::<Pay>(), Limit(1000))` — a charge over the limit refused before the host sees it.
+  Around the host: `drive`, middleware (`with`, `only::<E>`, `record`, `replay`), `Routes` (`on::<E>(|op| … r.give(v))`,
+  or `handler::<E>(h)` — the same handler a context takes), `remote` (okay's wire), `every_path`. `tests/host.rs`.
+- **Branches**: `join(branches)`, `both(a, b)`, `race(branches)` — polled on one thread, their waits overlapping,
+  the handlers of their context shared; an operation out with a host locks the branches to the one that asked until
+  it is answered; a branch's panic drops the others. `tests/branches.rs`.
+- **Streams**: `stream(cx, async |cx| … emit(&cx, v).await …)` — an `Iterator`, the body run a step per value,
+  dropped where it is when the iterator is. `tests/typed_stream.rs`.
+
+The shop (`examples/shop`) is the whole of it: one checkout, in process under production and test handlers, and
+handed out.
 
 ## Level 1: effects passed down, direct style
 

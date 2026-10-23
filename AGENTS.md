@@ -73,7 +73,18 @@ Two crates in one workspace: the root `okay` (okay-core's kernel ported — what
   "a row not checked", which a typed program never reaches.
 - Commits: no Co-Authored-By lines.
 
-## okay-effects (`effects/`)
+- `okay::host` (src/host.rs) — a typed program HANDED OUT: `start(|host| …)`, `host.outside::<E>()` (E a `wire`
+  effect) a handler whose operations stop the program as `Asked` (`Slot`: the op out, its answer or failure);
+  `Computation::{step, resume, resume_data, fail, cancel}`; `drive`, `with`, `only::<E>`, `Routes` (`on`, `handler`),
+  `record`, `replay`, `remote`, `every_path`. An interceptor passing an op to a handler that takes it (a host's)
+  answers `Step::Later`; `Has<E, Through<Ix>>::resume` gives the handler's answer back as it is. `OUT` (thread-local)
+  says an op is out with a host: `join`/`both`/`race` (typed.rs, `poll_branches`) lock to the branch that asked.
+  `stream` (typed.rs): the body by value, `Emitter` an Rc slot. `Remote::out` (each op's answer as data) — the
+  `effect!` macro writes it. Tests: tests/host.rs, branches.rs, typed_stream.rs, capabilities.rs; examples/shop.
+- THE ONE API (`specs/one-api.md`): new work goes to `okay::typed`/`okay::host`; the machine is the specification.
+
+## okay-effects (`effects/`) — SUPERSEDED by `okay::typed` + `okay::host` (2026-10-23); kept, not developed
+
 
 - Edition 2021, no dependencies. An operation implements `Op` (`op!` writes it with its form as data, `Operation`:
   a name in snake_case and a record, fields in lowerCamel — a Scala case class's shape); a handler (`handle`,

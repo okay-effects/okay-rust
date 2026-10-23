@@ -19,6 +19,8 @@ pub trait Remote: Effect {
     fn to_wire(&self) -> (String, Data);
     /// the operation answered with `d`, decoded into what it answers
     fn answer(&self, d: &Data) -> Result<Answer, String>;
+    /// how an answer to this operation goes out as a plain value
+    fn out(&self) -> AnswerOut;
     /// an operation of this effect from the wire, if `name` is one of its; and its answer as a plain value
     fn from_wire(name: &str, record: &Data) -> Option<Result<(Self, AnswerOut), String>>;
 }

@@ -39,10 +39,12 @@ Tests: `tests/pstate.rs`'s protocol and pipeline, with the compile_fail cases.
    several allocations an operation (throwing, choose, T:throwing), noise where none (README's Speed).
 2. This spec. DONE.
 3. `Dyn` layer, lane `T:dyn`.
-4. `Hosted`: the step protocol and the wire on typed; the TCK digest on typed.
+4. `Hosted`: the step protocol and the wire on typed — DONE as `okay::host` (2026-10-23); the TCK digest on typed:
+   to do.
 5. Guards on typed: `ensure`, `recover`, `uncancelable` (a drop guard; `catch_unwind` around a poll).
 6. Typestate on typed (above).
-7. `okay::direct` folded into typed (typed is already faster: 0.25 vs 2.45); okay-effects' capabilities — decision
-   pending (its par/race, streams, middleware, protocol as typed layers?).
+7. `okay::direct` folded into typed (typed is already faster: 0.25 vs 2.45). okay-effects: DECIDED and DONE
+   2026-10-23 — its capabilities, protocol, middleware, every path, branches (`join`/`both`/`race`), streams and
+   wire on the one API (`okay::host`, `okay::typed`); `examples/shop` on it; the crate kept, marked superseded.
 8. The machine's leftovers, only as far as it stays a working backend: `choose` copying, a nested `flat_map` boxed,
    the +9–16% since the guards.

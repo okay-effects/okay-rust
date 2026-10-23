@@ -75,6 +75,19 @@
 //! let _ = cx.0.handler.handle(Pay::Transfer(5, todo!()));
 //! ```
 //!
+//! A context cannot outlive its handlers — a capability does not escape its scope:
+//!
+//! ```compile_fail
+//! use okay::typed::*;
+//! use okay::effects::Reader;
+//! let kept;
+//! {
+//!     let cx = Cx(AskWith(1i64), End);
+//!     kept = &cx;
+//! }
+//! let _ = run(ask::<i64, _, _>(kept));
+//! ```
+//!
 //! The one way:
 //!
 //! ```
@@ -102,6 +115,7 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::pin::{pin, Pin};
+use std::rc::Rc;
 use std::task::{Context, Poll, Waker};
 
 use crate::eff::{short, Answer, Loop, Never, Reply};
@@ -179,8 +193,9 @@ pub trait Interceptor<E: Effect, R, Ix> {
 pub struct Pass<'h, H>(&'h H);
 
 impl<'h, H> Pass<'h, H> {
-    /// the operation `make` given a reply, handled: its value now, or none — the handler took the rest, or answers
-    /// later (`wait` for it)
+    /// the operation `make` given a reply, handled: its value now, or none — the handler took the rest (a host's: the
+    /// interceptor answers `Step::Later`, and the handler's answer goes back as it gives it), or answers later (`wait`
+    /// for it)
     pub fn perform<E: Effect, X: 'static>(&self, make: impl FnOnce(Reply<X>) -> E) -> Option<X>
     where
         H: Handles<E>,
@@ -307,9 +322,10 @@ impl<E: Effect, H: Handles<E>, I: Interceptor<E, R, Ix>, R, Ix> Has<E, Through<I
     fn perform<T: Clone + Debug + 'static>(&self, op: E) -> Got<'_, T> {
         Got::of(self.0.interceptor.intercept(op, Pass(&self.0.handler), &self.1))
     }
-    /// the rest taken by an interceptor (an error raised further out) is not given back
+    /// an operation passed on and taken by the handler (a host's) given back by it, its answer as the handler gave it;
+    /// the rest taken by the interceptor itself (an error raised further out) is not given back
     fn resume<T: Clone + Debug + 'static>(&self) -> Option<T> {
-        None
+        self.0.handler.resume().map(|a| a.0.take::<T>())
     }
 }
 
@@ -997,32 +1013,149 @@ pub fn block_on<F: Future>(fut: F) -> F::Output {
     }
 }
 
-/// two programs at once, each going on while the other waits: both values. Their effects' handlers shared; one taking
-/// the rest (`Later`: either, generate, the replay of `all`) wants one program at a time
-pub async fn both<A, B>(a: impl Future<Output = A>, b: impl Future<Output = B>) -> (A, B) {
-    let (mut a, mut b) = (pin!(a), pin!(b));
-    let (mut ra, mut rb) = (None, None);
+// BRANCHES: programs at once, on one thread — each going on while another waits on the world
+
+type Branch<'a> = Option<Pin<Box<dyn Future<Output = ()> + 'a>>>;
+
+/// `bs` polled round-robin to the end, or to the first done (`first`: its index). An operation out with a host locks
+/// the branches to the one that asked until it is answered — the host answers them one at a time. A branch's panic
+/// drops the others, then goes on
+async fn poll_branches(mut bs: Vec<Branch<'_>>, first: bool) -> Option<usize> {
+    let mut left = bs.len();
+    let mut owner: Option<usize> = None;
+    if left == 0 {
+        return None;
+    }
     std::future::poll_fn(|c| {
-        if ra.is_none()
-            && let Poll::Ready(x) = a.as_mut().poll(c)
-        {
-            ra = Some(x);
-        }
-        if rb.is_none()
-            && let Poll::Ready(y) = b.as_mut().poll(c)
-        {
-            rb = Some(y);
-        }
-        match (ra.take(), rb.take()) {
-            (Some(x), Some(y)) => Poll::Ready((x, y)),
-            (x, y) => {
-                ra = x;
-                rb = y;
-                Poll::Pending
+        let locked = owner;
+        for i in locked.into_iter().chain((0..bs.len()).filter(|&i| Some(i) != locked)) {
+            let Some(b) = bs[i].as_mut() else { continue };
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| b.as_mut().poll(c))) {
+                Err(p) => {
+                    bs.iter_mut().for_each(|b| *b = None);
+                    std::panic::resume_unwind(p)
+                }
+                Ok(Poll::Ready(())) => {
+                    bs[i] = None;
+                    left -= 1;
+                    if first || left == 0 {
+                        bs.iter_mut().for_each(|b| *b = None);
+                        return Poll::Ready(Some(i));
+                    }
+                }
+                Ok(Poll::Pending) => {}
             }
+            if crate::host::out() {
+                owner = Some(i);
+                return Poll::Pending;
+            }
+            owner = None;
         }
+        Poll::Pending
     })
     .await
+}
+
+/// each branch writing its value into its slot
+fn slotted<'a, T, F: Future<Output = T> + 'a>(slots: &'a mut [Option<T>], futs: Vec<F>) -> Vec<Branch<'a>> {
+    let one = |(slot, f): (&'a mut Option<T>, F)| -> Branch<'a> { Some(Box::pin(async move { *slot = Some(f.await) })) };
+    slots.iter_mut().zip(futs).map(one).collect()
+}
+
+/// every branch run, their values in order. Their effects' handlers shared — a handler taking the rest inside a
+/// branch (`either`, `generate`) its own. A branch that panics drops the others and the panic goes on from here
+pub async fn join<T, F: Future<Output = T>>(branches: impl IntoIterator<Item = F>) -> Vec<T> {
+    let futs: Vec<F> = branches.into_iter().collect();
+    let mut slots: Vec<Option<T>> = futs.iter().map(|_| None).collect();
+    poll_branches(slotted(&mut slots, futs), false).await;
+    slots.into_iter().map(|s| s.expect("every branch done")).collect()
+}
+
+/// two programs at once, of two types: both values
+pub async fn both<A, B>(a: impl Future<Output = A>, b: impl Future<Output = B>) -> (A, B) {
+    let (mut x, mut y) = (None, None);
+    let bs: Vec<Branch<'_>> =
+        vec![Some(Box::pin(async { x = Some(a.await) })), Some(Box::pin(async { y = Some(b.await) }))];
+    poll_branches(bs, false).await;
+    (x.expect("done"), y.expect("done"))
+}
+
+/// the first branch's value; the others dropped where they are, their destructors run. Panics if there are none
+pub async fn race<T, F: Future<Output = T>>(branches: impl IntoIterator<Item = F>) -> T {
+    let futs: Vec<F> = branches.into_iter().collect();
+    let mut slots: Vec<Option<T>> = futs.iter().map(|_| None).collect();
+    let won = poll_branches(slotted(&mut slots, futs), true).await.expect("okay: a race of no branches");
+    slots.swap_remove(won).expect("the winner's value")
+}
+
+// A STREAM: a body emitting values, pulled as an `Iterator` — the body suspended at each emit until the next is wanted
+
+/// the handler `stream` gives its body: the value emitted kept for the consumer
+pub struct Emitter<V>(Rc<EmitSlot<V>>);
+
+struct EmitSlot<V> {
+    value: RefCell<Option<V>>,
+    taken: Cell<bool>,
+}
+
+impl<V: Clone + std::fmt::Debug + 'static> Handles<Emit<V>> for Emitter<V> {
+    fn handle(&self, op: Emit<V>) -> Step<'_> {
+        match op {
+            Emit::Value(v, _) => {
+                *self.0.value.borrow_mut() = Some(v);
+                self.0.taken.set(false);
+                Step::Later
+            }
+        }
+    }
+    fn resume(&self) -> Option<Answer> {
+        if self.0.taken.get() { Some(Reply::<()>::new().give(())) } else { None }
+    }
+}
+
+/// the values a body emits, one per `next()`, the body run lazily a step per value; dropping it drops the body where
+/// it is (its destructors run). A real wait inside parks the thread; an operation taken and never given back ends it
+pub struct Stream<'a, V> {
+    slot: Rc<EmitSlot<V>>,
+    fut: Option<Pin<Box<dyn Future<Output = ()> + 'a>>>,
+    waker: Waker,
+}
+
+/// `body` as a stream: it gets its context — `cx` with an `Emitter` in front — by value
+pub fn stream<'a, V, C>(cx: &'a C, body: impl AsyncFnOnce(Cx<Emitter<V>, &'a C>) + 'a) -> Stream<'a, V>
+where
+    V: Clone + std::fmt::Debug + 'static,
+{
+    struct Unpark(std::thread::Thread);
+    impl std::task::Wake for Unpark {
+        fn wake(self: std::sync::Arc<Self>) {
+            self.0.unpark();
+        }
+    }
+    let slot = Rc::new(EmitSlot { value: RefCell::new(None), taken: Cell::new(false) });
+    let inner = Cx(Emitter(slot.clone()), cx);
+    let fut: Pin<Box<dyn Future<Output = ()> + 'a>> = Box::pin(async move { body(inner).await });
+    let waker = Waker::from(std::sync::Arc::new(Unpark(std::thread::current())));
+    Stream { slot, fut: Some(fut), waker }
+}
+
+impl<V> Iterator for Stream<'_, V> {
+    type Item = V;
+    fn next(&mut self) -> Option<V> {
+        let fut = self.fut.as_mut()?;
+        let mut c = Context::from_waker(&self.waker);
+        self.slot.taken.set(true);
+        loop {
+            if fut.as_mut().poll(&mut c).is_ready() {
+                self.fut = None;
+                return None;
+            }
+            if let Some(v) = self.slot.value.borrow_mut().take() {
+                return Some(v);
+            }
+            std::thread::park();
+        }
+    }
 }
 
 /// an operation (a program) done now, where no `.await` is — in an interceptor: its value, or none — taken

@@ -54,7 +54,7 @@ dependencies = [
 name = "okay-shop"
 version = "0.1.0"
 dependencies = [
- "okay-effects",
+ "okay-rust",
 ]
 
 [[package]]

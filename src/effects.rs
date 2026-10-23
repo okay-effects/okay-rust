@@ -279,6 +279,11 @@ use crate::data::{Data, IsData};
 use crate::wire::{answer_out, reply, AnswerOut, Remote};
 use crate::Answer;
 
+/// the answer of an operation that has none (a raise, a failed path): never made
+fn no_answer(_: Answer) -> Data {
+    unreachable!("okay: an operation with no answer answered")
+}
+
 fn empty() -> Data {
     Data::Dict(vec![])
 }
@@ -291,6 +296,9 @@ impl<V: Clone + Debug + IsData + 'static> Remote for Reader<V> {
         match self {
             Reader::Ask(r) => Ok(r.give(V::from_data(d)?)),
         }
+    }
+    fn out(&self) -> AnswerOut {
+        answer_out::<V>
     }
     fn from_wire(name: &str, _: &Data) -> Option<Result<(Self, AnswerOut), String>> {
         (name == "ask").then(|| Ok((Reader::Ask(reply()), answer_out::<V> as AnswerOut)))
@@ -308,6 +316,12 @@ impl<S: Clone + Debug + IsData + 'static> Remote for State<S> {
         match self {
             State::Get(r) => Ok(r.give(S::from_data(d)?)),
             State::Put(_, r) => Ok(r.give(())),
+        }
+    }
+    fn out(&self) -> AnswerOut {
+        match self {
+            State::Get(_) => answer_out::<S>,
+            State::Put(..) => answer_out::<()>,
         }
     }
     fn from_wire(name: &str, record: &Data) -> Option<Result<(Self, AnswerOut), String>> {
@@ -330,6 +344,9 @@ impl<W: Clone + Debug + IsData + 'static> Remote for Writer<W> {
             Writer::Tell(_, r) => Ok(r.give(())),
         }
     }
+    fn out(&self) -> AnswerOut {
+        answer_out::<()>
+    }
     fn from_wire(name: &str, record: &Data) -> Option<Result<(Self, AnswerOut), String>> {
         (name == "tell").then(|| record.field("w").and_then(W::from_data).map(|w| (Writer::Tell(w, reply()), answer_out::<()> as AnswerOut)))
     }
@@ -348,6 +365,12 @@ impl Remote for Choose {
             Choose::Fail(_) => Err("okay: a failed path has no answer".into()),
         }
     }
+    fn out(&self) -> AnswerOut {
+        match self {
+            Choose::Among(..) => answer_out::<usize>,
+            Choose::Fail(_) => no_answer,
+        }
+    }
     fn from_wire(name: &str, record: &Data) -> Option<Result<(Self, AnswerOut), String>> {
         (name == "among").then(|| record.field("n").and_then(usize::from_data).map(|n| (Choose::Among(n, reply()), answer_out::<usize> as AnswerOut)))
     }
@@ -361,6 +384,9 @@ impl<E: Clone + Debug + IsData + 'static> Remote for Throws<E> {
     }
     fn answer(&self, _: &Data) -> Result<Answer, String> {
         Err("okay: a raise has no answer".into())
+    }
+    fn out(&self) -> AnswerOut {
+        no_answer
     }
     fn from_wire(_: &str, _: &Data) -> Option<Result<(Self, AnswerOut), String>> {
         None

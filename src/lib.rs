@@ -58,6 +58,7 @@ mod val;
 pub mod audit;
 pub mod direct;
 pub mod typed;
+pub mod host;
 pub mod wire;
 
 pub use eff::{defer, perform, pure, tail_rec, Loop, Answer, AnyOp, Bind, Eff, Failure, Guard, Never, Node, Pass, PassingOut, Program, Reply};
@@ -70,6 +71,26 @@ pub use row::{AuditAll, Audited, Cons, Control, Delim, Effect, Nearest, Reset, H
 /// A TAIL CALL: `call!(f(a, b))` — `f(a, b)` made when the machine gets to it, not now; so functions calling each
 /// other in tail position (`is_even` → `is_odd` → …) run in constant stack, however deep. The arguments are evaluated
 /// when the call is made, and cloned: a rest resumed twice calls again
+/// A RECORD: a struct whose fields are plain values, as data (`IsData`) — keys in lowerCamel, a Scala case class's
+/// shape. `okay::data!(pub struct Receipt { pub paid: bool, pub detail: String });`
+#[macro_export]
+macro_rules! data {
+    ($(#[$m:meta])* $vis:vis struct $name:ident { $($fvis:vis $field:ident : $ty:ty),* $(,)? }) => {
+        $(#[$m])*
+        #[derive(Clone, Debug, PartialEq)]
+        $vis struct $name { $($fvis $field: $ty),* }
+        impl $crate::IsData for $name {
+            fn to_data(&self) -> $crate::Data {
+                $crate::Data::Dict(vec![$(($crate::data::camel(stringify!($field)), $crate::IsData::to_data(&self.$field))),*])
+            }
+            #[allow(unused_variables)]
+            fn from_data(d: &$crate::Data) -> Result<Self, String> {
+                Ok($name { $($field: $crate::IsData::from_data(d.field(&$crate::data::camel(stringify!($field)))?)?),* })
+            }
+        }
+    };
+}
+
 #[macro_export]
 macro_rules! call {
     ($($f:ident)::+ ( $($arg:expr),* $(,)? )) => {
@@ -222,6 +243,11 @@ macro_rules! effect {
             fn answer(&self, d: &$crate::Data) -> Result<$crate::Answer, String> {
                 match self {
                     $( $name::$op(.., r) => Ok(r.give(<$out as $crate::IsData>::from_data(d)?)), )*
+                }
+            }
+            fn out(&self) -> $crate::wire::AnswerOut {
+                match self {
+                    $( $name::$op(..) => $crate::wire::answer_out::<$out> as $crate::wire::AnswerOut, )*
                 }
             }
             #[allow(unused_variables)]

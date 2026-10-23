@@ -5,7 +5,7 @@ import okay.codec.Schema
 import okay.effect
 import okay.std.{Choose, Reader, runChoice}
 
-/** okay-rust (Rust effects on async/await, its own capabilities and handlers)
+/** okay-rust (Rust effects on async/await: the one API, okay::typed and okay::host)
  * over okay's worker wire: each side sees only operations and answers */
 object TestOkayRustWire:
   final case class Reserve(item: String) derives Schema
@@ -31,8 +31,10 @@ object TestOkayRustWire:
   val okayRust = "/Users/sergiy/work/my/okay-rust"
 
   val main: String = """use okay::{function, okay_call, Functions, Op, Programs, Value, Wire, Worker};
-use okay_effects::{drive, start, wire, Data};
-use okay_shop::{remote, Charge, Receipt};
+use okay_kernel::host::{drive, remote, start};
+use okay_kernel::typed::{Audited, Cx, End};
+use okay_kernel::Data;
+use okay_shop::{checkout, Allow, Inventory, Notify, Payments, Receipt};
 use okay_kernel::effects::{among, Choose};
 use okay_kernel::wire::{program, Remotes, Wire as KWire};
 use okay_kernel::{eff, row, Eff};
@@ -85,7 +87,7 @@ fn prog(w: KWire) -> okay::Prog {
     }
 }
 
-// okay's wire values and okay-effects' plain values, one for one
+// okay's wire values and the shop's plain values, one for one
 fn data(v: &Value) -> Data {
     match v {
         Value::Null => Data::Null,
@@ -148,18 +150,29 @@ fn make() -> Worker {
             }
         }));
     }
-    // the Rust shop, unchanged, handed out: its capabilities answered by okay, step by step
+    // the Rust shop, unchanged, handed out: its effects answered by okay, step by step — payments under their interceptor
     functions.insert("checkout".into(), function(|args| {
         let (user, item, cents) = (String::from_value(&args[0])?, String::from_value(&args[1])?, i64::from_value(&args[2])?);
-        let run = start(move |h| async move { remote(&h).checkout(&user, &item, cents).await });
-        let r = drive(run, wire::remote(|name: &str, args: Vec<Data>| {
+        let run = start(move |h| async move {
+            let cx = Cx(h.outside::<Inventory>(), Cx(Audited::new(h.outside::<Payments>(), Allow), Cx(h.outside::<Notify>(), End)));
+            checkout(&cx, &user, &item, cents).await
+        });
+        let r = drive(run, remote(|name: &str, args: Vec<Data>| {
             okay_call(Op::<Value>::new(name, args.iter().map(value).collect())).map(|v| data(&v)).map_err(|e| e.to_string())
         }))?;
         Ok(Value::Str(format!("{} {}", r.paid, r.detail)))
     }));
     // a Rust handler, served to okay by its operation's name
-    let (name, charge) = wire::serve(|op: Charge| Receipt { paid: op.cents <= 5000, detail: format!("rust-{}-{}", op.user, op.cents) });
-    functions.insert(name, function(move |args| charge(args.iter().map(data).collect()).map(|d| value(&d))));
+    let charge = okay_kernel::wire::serve(|op: Payments| match op {
+        Payments::Charge(user, cents, r) => r.give(Receipt { paid: cents <= 5000, detail: format!("rust-{user}-{cents}") }),
+    });
+    functions.insert("charge".into(), function(move |args| {
+        let rec = args.first().map(data).unwrap_or(Data::Dict(vec![]));
+        match charge("charge", &rec) {
+            Some(r) => r.map(|d| value(&d)),
+            None => Err("no charge".into()),
+        }
+    }));
     Worker::new(programs, functions)
 }
 
@@ -179,7 +192,7 @@ class TestOkayRustWire extends munit.FunSuite {
     Files.createDirectories(dir.resolve("src")): Unit
     Files.writeString(dir.resolve("Cargo.toml"),
       s"[package]\nname = \"worker\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nokay = { path = \"okay\" }\n" +
-      s"okay-effects = { path = \"$okayRust/effects\" }\nokay-shop = { path = \"$okayRust/examples/shop\" }\n" +
+      s"okay-shop = { path = \"$okayRust/examples/shop\" }\n" +
       s"okay-kernel = { package = \"okay-rust\", path = \"$okayRust\" }\n"): Unit
     Files.writeString(dir.resolve("src").resolve("main.rs"), main): Unit
     ForeignWorker.speaking(Seq(RustWorker.build(dir).toString))

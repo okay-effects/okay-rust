@@ -1,3 +1,8 @@
+//! SUPERSEDED (2026-10-23) by the one API: `okay::typed` (a program over a context) and `okay::host` (a program
+//! handed out: the kernel's protocol, middleware, `Routes`, record and replay, the wire, every path), with
+//! `okay::typed::{join, both, race, stream}`. Kept for existing users; not developed. See okay-rust's
+//! `specs/one-api.md`.
+//!
 //! okay-effects: algebraic effects for Rust, typed, on `async`/`.await` — the
 //! design of okay (Scala 3), okay-go and okay-python, in Rust.
 //!
