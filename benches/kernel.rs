@@ -481,7 +481,57 @@ mod typed {
 
 // THE HARNESS: JMH's AverageTime — warm-up, then rounds of a second, µs a run
 
+#[cfg(all(feature = "count-allocs", feature = "mimalloc"))]
+compile_error!("count-allocs counts the system allocator: not with mimalloc");
+
+/// `--features count-allocs`: the system allocator under a counter; each lane prints its allocations per run
+#[cfg(feature = "count-allocs")]
+mod counting {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+
+    pub static ALLOCS: AtomicU64 = AtomicU64::new(0);
+    pub static BYTES: AtomicU64 = AtomicU64::new(0);
+
+    pub struct Counting;
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, l: Layout) -> *mut u8 {
+            ALLOCS.fetch_add(1, Relaxed);
+            BYTES.fetch_add(l.size() as u64, Relaxed);
+            unsafe { System.alloc(l) }
+        }
+        unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
+            unsafe { System.dealloc(p, l) }
+        }
+        unsafe fn realloc(&self, p: *mut u8, l: Layout, n: usize) -> *mut u8 {
+            ALLOCS.fetch_add(1, Relaxed);
+            BYTES.fetch_add(n as u64, Relaxed);
+            unsafe { System.realloc(p, l, n) }
+        }
+    }
+    #[global_allocator]
+    static GLOBAL: Counting = Counting;
+
+    /// allocations and bytes of one run, after a warm one
+    pub fn per_run(f: &dyn Fn() -> u64) -> (u64, u64) {
+        std::hint::black_box(f());
+        let (a, b) = (ALLOCS.load(Relaxed), BYTES.load(Relaxed));
+        std::hint::black_box(f());
+        (ALLOCS.load(Relaxed) - a, BYTES.load(Relaxed) - b)
+    }
+}
+
 fn lane(name: &str, f: &dyn Fn() -> u64) {
+    #[cfg(feature = "count-allocs")]
+    {
+        let (a, b) = counting::per_run(f);
+        println!("{name:14} {a:10} allocs {b:12} bytes per run");
+    }
+    #[cfg(not(feature = "count-allocs"))]
+    timed(name, f);
+}
+
+fn timed(name: &str, f: &dyn Fn() -> u64) {
     let second = Duration::from_secs(1);
     for _ in 0..3 {
         let t = Instant::now();

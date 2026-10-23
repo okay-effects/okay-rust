@@ -10,6 +10,13 @@ repository = "https://github.com/okay-effects/okay-rust"
 name = "okay"
 
 [dependencies]
+# optional: none by default. `mimalloc` makes mimalloc the global allocator of the binary okay is linked into
+mimalloc = { version = "0.1", optional = true, default-features = false }
+
+[features]
+mimalloc = ["dep:mimalloc"]
+# benches only: count the allocations of one run of each lane (the system allocator under a counter)
+count-allocs = []
 
 [workspace]
 members = ["effects", "examples/shop"]

@@ -35,6 +35,12 @@
 //! let p: Eff<row![Reader<i64>], i64> = get::<i64, _, _>();
 //! ```
 
+/// mimalloc as the global allocator (feature `mimalloc`): the machine allocates its nodes, frames and rests, and
+/// macOS's allocator is where its time went.
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 pub mod cont;
 pub mod data;
 pub mod effects;

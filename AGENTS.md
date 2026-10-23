@@ -4,7 +4,7 @@ Two crates in one workspace: the root `okay` (okay-core's kernel ported — what
 `effects/` (`okay-effects`: capabilities on async/await, okay-kernel's step protocol, middleware, okay's wire), with
 `examples/shop` on the second. `cargo test --workspace` runs both. This repository was okay-rs; its history is here.
 
-- Rust 2024 (rustc 1.92), no dependencies; `cargo test` runs the unit, integration and doc tests (the doc tests hold
+- Rust 2024 (rustc 1.92), no dependencies but the optional `mimalloc` (feature `mimalloc`: the global allocator); `cargo test` runs the unit, integration and doc tests (the doc tests hold
   the `compile_fail` checks: a row not handled has no `run`; an effect not in the row cannot be performed).
 - okay-core's kernel ported (`okay.one` in ~/work/my/okay-core is the specification; the okay-one repository is history): a program is DATA, `Eff<R, A>`, a tree of nodes; its
   effects a row `R` (`Cons<E, R>` … `Nil`, `row![…]`), an effect's place found by the compiler (`Member<E, Ix>`, the
@@ -49,7 +49,10 @@ Two crates in one workspace: the root `okay` (okay-core's kernel ported — what
   operations, which keep that future; `Perform` must keep NO field with a destructor — one costs 2–7× on the `T:`
   lanes (measured: not unwinding, not size; `ManuallyDrop` restores it). `block_on`, `both`; `tests/async.rs`.
 - Benchmarks: `benches/kernel.rs`, okay-core's KernelBenchmark lanes, the same programs and n; run it under JMH's
-  lock (`/tmp/okz/tools/withlock.py`) — other sessions measure on this machine — and compile under it too.
+  lock (`scripts/withlock.py`) — other sessions measure on this machine — and compile under it too. A/B two bench
+  binaries, alternating: `scripts/bench-ab.sh <binA> <binB> <rounds> [lanes]`; append the medians to
+  `benches/history.tsv` (never rewrite it). `--features count-allocs`: allocations per run per lane. The plan of the
+  one API (typed as the API, contexts as backends, the machine as the specification): `specs/one-api.md`.
 - Stage 2 is in (`src/cont.rs`): `Cont<R, I, O, A>`, `Control<T>`/`Delim<T>`/`Reset` in the row, `Nearest` (a shift0
   to the nearest `$`, never past one — `Control` is not an `Effect`, which keeps the impls apart), `Bind` for the four
   pairs, `shift0` (in `okay::cont` only: `okay::effects::shift0` is the effect's), `dollar`, `reset`, `Passing`

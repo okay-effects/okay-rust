@@ -1,0 +1,48 @@
+# One API: speed and control from the same program
+
+Status: agreed 2026-10-23, in progress.
+
+## The rule
+
+A program is written ONCE, in `okay::typed`: `eff! { … }` / `needs!` — an `async` body over a context `cx`. What it
+compiles to is chosen by the CONTEXT the caller gives, never by the program:
+
+| context layer | what it gives | cost |
+|---|---|---|
+| static (`Cx(handler, rest)`, `Audited::new(h, i)`, `observe`) | handlers and interceptors known at compile time, monomorphized, inlined | `answered` 0.25 µs / 1000 ops, an interceptor free |
+| `Dyn` (to do) | interceptors, audit policies, middleware installed at run time (config, a tenant) | one indirect call per operation (~1 µs / 1000, as `D:readsDyn`) |
+| `Hosted` (to do) | an operation no layer takes is ASKED of a host: okay-kernel's protocol (step, resume, fail, cancel), okay's wire | the suspended future is the one-shot `k` |
+| `Paths` (`all`, `first`) | the rest taken many times, by replay | a path's prefix answered again from the log |
+
+The guarantee holds in every one: a `Sensitive` effect enters a context only under its audit (`Allowed`, sealed) —
+a `Dyn` layer too, since the context's TYPE stays static even when its interceptors are not.
+
+## The machine (`Eff`)
+
+Not a user API any more. It stays as:
+- the SPECIFICATION — the reference interpreter, the TCK digest, okay-core's suites; typed programs are checked
+  against the machine's answers (`tests/replay.rs` is the pattern);
+- the backend of what an async body cannot be: answer-type modification (`Cont`, `$`, `shift0`, `PState`) — a
+  `shift0` must hold the rest up to its `$` as a value, and an async body cannot be cut.
+
+## A state whose type moves (`PState`'s purpose) in typed
+
+Not by answer types: by ownership. The state is a token value; each operation takes `Sess<Open>` and gives
+`Sess<Authed>`; the body must give back `Sess<Closed>`. A query before the login, a session left open, an old state
+used again (moved) — each a compile error. The operations still go through `cx`: audit and observe see them.
+Tests: `tests/pstate.rs`'s protocol and pipeline, with the compile_fail cases.
+
+## Steps
+
+0. Baseline: every lane, alternating A/B under JMH's lock, appended to `benches/history.tsv`. DONE 2026-10-23.
+1. Allocator: `--features mimalloc`; allocations per run per lane (`--features count-allocs`). DONE: −20–25% where
+   several allocations an operation (throwing, choose, T:throwing), noise where none (README's Speed).
+2. This spec. DONE.
+3. `Dyn` layer, lane `T:dyn`.
+4. `Hosted`: the step protocol and the wire on typed; the TCK digest on typed.
+5. Guards on typed: `ensure`, `recover`, `uncancelable` (a drop guard; `catch_unwind` around a poll).
+6. Typestate on typed (above).
+7. `okay::direct` folded into typed (typed is already faster: 0.25 vs 2.45); okay-effects' capabilities — decision
+   pending (its par/race, streams, middleware, protocol as typed layers?).
+8. The machine's leftovers, only as far as it stays a working backend: `choose` copying, a nested `flat_map` boxed,
+   the +9–16% since the guards.

@@ -575,9 +575,24 @@ fast one on its own locals while no guard has been entered in the thread, handin
 The lanes left slower run code the same as before (the loop's arms the commit before's): what is left is the loop's
 layout, as in step 7 above. The typed form (`T:`) and level 1 (`D:`) unchanged.
 
-What is left: `malloc` itself — macOS's allocator is where the time goes now (with mimalloc as the global allocator
-the first port was 1.6–1.8× faster); the levels and frames of a rest copied when it is resumed many times (`choose`);
-a nested `flat_map` still a boxed node (`leftMaps`, `state`).
+**The allocator (2026-10-23).** `--features mimalloc` makes mimalloc the global allocator of the binary okay is
+linked into (optional; okay has no dependency without it). Allocations of one run (`--features count-allocs`):
+`pure`/`answered`/`reads` 2–4, `general`/`forwardedK`/`state*` ~1 per operation, `rightMaps` 2, `choose` 6,
+`throwing` 8, `throwingK` 10; typed `T:` none but `T:throwing`'s message (1) and `T:writer`'s vector. Alternating A/B,
+three rounds under JMH's lock, medians (`benches/history.tsv`), µs per run:
+
+| lane | system | mimalloc | |
+|---|---|---|---|
+| `pure` / `answered` / `forwarded` / `reads` | 8.68 / 9.93 / 10.28 / 10.80 | 8.69 / 9.95 / 10.13 / 11.54 | noise |
+| `state` / `stateCell` / `writer` | 47.71 / 40.41 / 10.73 | 46.95 / 39.47 / 10.36 | −2–3% |
+| `general` / `forwardedK` / `forwardedK16` | 43.55 / 46.96 / 88.51 | 40.96 / 43.35 / 80.40 | −6–9% |
+| `leftMaps` / `rightMaps` | 25.11 / 29.79 | 22.51 / 26.55 | −10–11% |
+| `throwing` / `throwingK` / `choose` | 110.17 / 135.02 / 111.22 | 86.77 / 103.17 / 89.54 | −20–24% |
+| `T:throwing` / `T:writer` / `D:writer` | 7.94 / 1.14 / 0.91 | 5.94 / 0.94 / 0.74 | −18–25% |
+
+So the allocator pays where there are several allocations an operation; a state's one does not — its time, and that
+of the lanes that do not allocate, is the loop's own. What is left: the levels and frames of a rest copied when it is
+resumed many times (`choose`); a nested `flat_map` still a boxed node (`leftMaps`, `state`).
 
 ## Next
 
