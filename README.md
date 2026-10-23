@@ -652,6 +652,16 @@ So the allocator pays where there are several allocations an operation; a state'
 of the lanes that do not allocate, is the loop's own. What is left: the levels and frames of a rest copied when it is
 resumed many times (`choose`); a nested `flat_map` still a boxed node (`leftMaps`, `state`).
 
+**The node smaller (2026-10-23).** An operation's effect `TypeId` moved from the node into its table (`OpInfo`, made
+at compile time): `Op` 64 → 48 bytes, `Kind` 96 → 80 — the node moved at each step. Alternating A/B, three rounds
+under JMH's lock, µs per run: `state` 47.7 → 42.2, `stateCell` 41.3 → 35.3, `stateDeep` 47.5 → 42.3, `general` 43.4
+→ 39.8, `forwardedK` 45.6 → 41.4, `choose` 114.9 → 102.5, `throwing` 104.7 → 96.1, `writer` 11.1 → 10.3; `pure` (no
+operation in it) 8.7 → 9.6, the loop's layout. `eff.rs`'s `a_node_is_small` keeps it so. Tried and not kept: a `Val`
+with no tag (32 bytes, a box marked by an id) — `answered`/`forwarded`/`writer` 10–12% slower, with the loops aligned
+too, so not layout; the frames' vectors of a rest's copies pooled — `choose` unchanged, `answered`/`forwarded`/`writer`
++15% (layout). Profiles (`sample`): `choose` is malloc and free (42%) and the copies of its rest (11%); `state` is the
+loop itself (56%) — what is left there is the loop's dispatch, not memory.
+
 ## Next
 
 - A `Linear` handler (okay-core's: `k` once, at any answers, under a `$`): its clause generic over the answers needs

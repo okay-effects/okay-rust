@@ -75,3 +75,16 @@ date	sha	arm	host_load	lane	us_per_run	note
 2026-10-23	fe9c2bc+dynamic	val op	6.0	T:dynCx	2.520	the op in a Val (small in place): -76%
 2026-10-23	fe9c2bc+dynamic	box op	6.0	T:dynCx4	14.728	
 2026-10-23	fe9c2bc+dynamic	val op	6.0	T:dynCx4	10.735	~2 ns a layer passed
+2026-10-23	0568116+e1	REFUTED	6.0	choose	112.321	E1 frames vectors pooled for k copies: choose 1.003, answered/forwarded/writer +15% (layout); reverted
+2026-10-23	0568116+e3	REFUTED	9.6	answered	11.165	E3 Val without a tag (32 bytes, a Boxed marker id) + E2: answered/forwarded/writer +10-12% even with aligned loops; reverted
+2026-10-23	0568116+e2	e2	5.4-33	state	42.156	E2 Op's effect in its OpInfo: Kind 96->80 bytes. A/B 3 rounds vs 47.734
+2026-10-23	0568116+e2	e2	5.4-33	stateCell	35.289	vs 41.301
+2026-10-23	0568116+e2	e2	5.4-33	stateDeep	42.258	vs 47.549
+2026-10-23	0568116+e2	e2	5.4-33	general	39.827	vs 43.434
+2026-10-23	0568116+e2	e2	5.4-33	forwardedK	41.372	vs 45.620
+2026-10-23	0568116+e2	e2	5.4-33	choose	102.481	vs 114.886
+2026-10-23	0568116+e2	e2	5.4-33	throwing	96.140	vs 104.740
+2026-10-23	0568116+e2	e2	5.4-33	writer	10.331	vs 11.138
+2026-10-23	0568116+e2	e2	5.4-33	answered	9.664	vs 9.965
+2026-10-23	0568116+e2	e2	5.4-33	pure	9.607	vs 8.696: +10% in every round (no op in it: layout)
+2026-10-23	0568116+e2	e2	5.4-33	rightMaps	41.217	noise: a round at 225 under a load spike (33); the E2+E3 A/B had it at 0.99

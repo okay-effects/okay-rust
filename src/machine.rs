@@ -342,7 +342,7 @@ fn steps_in<const FAST: bool>(stack: &mut Vec<Segment>, pool: &mut Pool, hole: &
             Kind::Then(v, f) => f.call(v).0,
             Kind::Inject(op, f) if !FAST && passing_guards => inject_passing(stack, op, f),
             Kind::Inject(op, f) => {
-                let Some(i) = stack.iter().rposition(|s| s.level.catches(op.effect)) else {
+                let Some(i) = stack.iter().rposition(|s| s.level.catches(op.effect())) else {
                     // none in the program: the host's — the rest, this frame first, given back with it
                     if let Some(top) = stack.last_mut() {
                         top.frames.push(f);
@@ -391,7 +391,7 @@ fn steps_in<const FAST: bool>(stack: &mut Vec<Segment>, pool: &mut Pool, hole: &
             Kind::Perform(op) => {
                 // the nearest level of the effect, or an observer before it; none in the program — an effect of the row
                 // outside it: the host's, given back with the rest, every level
-                let Some(i) = stack.iter().rposition(|s| s.level.catches(op.effect)) else {
+                let Some(i) = stack.iter().rposition(|s| s.level.catches(op.effect())) else {
                     return Outcome::Asked(op, K0::take(stack, 0, pool));
                 };
                 perform_at(stack, pool, hole, i, op)
@@ -498,7 +498,7 @@ fn inject_passing(stack: &mut [Segment], op: Op, f: Frame) -> Kind {
 #[cold]
 #[inline(never)]
 fn perform_passing(stack: &mut [Segment], op: Op) -> Kind {
-    let found = stack.iter().rposition(|s| s.level.catches(op.effect));
+    let found = stack.iter().rposition(|s| s.level.catches(op.effect()));
     let (op, back) = passing(stack, found.map_or(0, |i| i + 1), op);
     if !back.is_empty()
         && let Some(top) = stack.last_mut()
@@ -524,7 +524,7 @@ fn rare_node(stack: &mut Vec<Segment>, pool: &mut Pool, hole: &Rc<dyn Any>, r: R
             f(k).0
         }
         Rare::Passed(op) => {
-            let Some(i) = stack.iter().rposition(|s| s.level.catches(op.effect)) else {
+            let Some(i) = stack.iter().rposition(|s| s.level.catches(op.effect())) else {
                 return Err(Outcome::Asked(op, K0::take(stack, 0, pool)));
             };
             perform_at(stack, pool, hole, i, op)

@@ -69,14 +69,22 @@ pub(crate) fn rare(r: Rare) -> Kind {
 /// AN OPERATION ERASED, with what an observer needs of it: its effect, a description, a copy — and of its answer the
 /// same, made where its type was known
 pub(crate) struct Op {
-    pub(crate) effect: TypeId,
     pub(crate) info: &'static OpInfo,
     pub(crate) value: Val,
+}
+
+impl Op {
+    /// its effect's type id: in its table (not in the node — a node moved at each step)
+    #[inline(always)]
+    pub(crate) fn effect(&self) -> TypeId {
+        self.info.effect
+    }
 }
 
 /// WHAT AN OBSERVER NEEDS OF AN OPERATION, the same for each of an effect and its value's type: one table, made at
 /// compile time — the node holds a reference, not the six
 pub(crate) struct OpInfo {
+    pub(crate) effect: TypeId,
     pub(crate) name: fn() -> &'static str,
     pub(crate) describe: fn(&Val) -> String,
     pub(crate) copy: fn(&Val) -> Val,
@@ -89,6 +97,7 @@ struct Info<E, T>(PhantomData<fn() -> (E, T)>);
 
 impl<E: Effect, T: Clone + Debug + 'static> Info<E, T> {
     const INFO: OpInfo = OpInfo {
+        effect: TypeId::of::<E>(),
         name: std::any::type_name::<E>,
         describe: describe_as::<E>,
         copy: copy_as::<E>,
@@ -100,13 +109,13 @@ impl<E: Effect, T: Clone + Debug + 'static> Info<E, T> {
 impl Op {
     #[inline(always)]
     fn of<E: Effect, T: Clone + Debug + 'static>(e: E) -> Op {
-        Op { effect: TypeId::of::<E>(), info: &Info::<E, T>::INFO, value: Val::new(e) }
+        Op { info: &Info::<E, T>::INFO, value: Val::new(e) }
     }
 }
 
 impl Clone for Op {
     fn clone(&self) -> Self {
-        Op { effect: self.effect, info: self.info, value: (self.info.copy)(&self.value) }
+        Op { info: self.info, value: (self.info.copy)(&self.value) }
     }
 }
 
@@ -488,13 +497,13 @@ impl AnyOp {
 
     /// the operation, if it is of the effect `E`
     pub fn op<E: Effect>(&self) -> Option<E> {
-        (self.0.effect == TypeId::of::<E>()).then(|| (self.0.info.copy)(&self.0.value).take::<E>())
+        (self.0.effect() == TypeId::of::<E>()).then(|| (self.0.info.copy)(&self.0.value).take::<E>())
     }
 
     /// another operation of the same effect in its place (a guard's passing): of another effect, refused
     pub fn with<E: Effect>(&self, e: E) -> AnyOp {
-        assert_eq!(self.0.effect, TypeId::of::<E>(), "okay: an operation replaced by one of another effect");
-        AnyOp(Op { effect: self.0.effect, info: self.0.info, value: Val::new(e) })
+        assert_eq!(self.0.effect(), TypeId::of::<E>(), "okay: an operation replaced by one of another effect");
+        AnyOp(Op { info: self.0.info, value: Val::new(e) })
     }
 
     /// passed on, to the handler further out: its answer to the rest `k`
@@ -569,5 +578,17 @@ impl<S: Effect> Pass<S> {
         T: Member<Audited<S>, Ix>,
     {
         Eff::of(Kind::Perform(Op::of::<S, X>(make(Reply(PhantomData)))))
+    }
+}
+
+#[cfg(test)]
+mod sizes {
+    /// the node moved at each step of the machine: its size is its speed (an operation's effect in its table, not in
+    /// the node: `Kind` 96 → 80 bytes, the state lanes −11–15%). A variant bigger than these: measure first
+    #[test]
+    fn a_node_is_small() {
+        use std::mem::size_of;
+        assert_eq!((size_of::<super::Val>(), size_of::<super::Op>(), size_of::<super::Frame>()), (40, 48, 32));
+        assert!(size_of::<super::Kind>() <= 80, "Kind {} bytes", size_of::<super::Kind>());
     }
 }

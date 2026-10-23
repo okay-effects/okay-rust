@@ -52,7 +52,7 @@ impl<R, A> Clone for Yield<R, A> {
 impl<R, A: 'static> Yield<R, A> {
     /// the operation, if it is of the effect `E`: matched, its variant's `Reply` gives the answer
     pub fn op<E: Effect>(&self) -> Option<E> {
-        (self.op.effect == std::any::TypeId::of::<E>()).then(|| (self.op.info.copy)(&self.op.value).take::<E>())
+        (self.op.effect() == std::any::TypeId::of::<E>()).then(|| (self.op.info.copy)(&self.op.value).take::<E>())
     }
 
     /// its effect's name: `Reader<i64>`
@@ -83,7 +83,7 @@ impl<R, A: 'static> Yield<R, A> {
     }
 
     pub(crate) fn effect_id(&self) -> std::any::TypeId {
-        self.op.effect
+        self.op.effect()
     }
 
     pub(crate) fn erased_op(&self) -> &Op {

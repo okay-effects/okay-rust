@@ -92,7 +92,7 @@ fn handled(level: Level, n: Norm) -> Norm {
         },
         Norm::Op(op, k) => {
             let mine = match &level {
-                Level::Answering(e, _) | Level::Deep(e, _) | Level::Aborting(e, _) => *e == op.effect,
+                Level::Answering(e, _) | Level::Deep(e, _) | Level::Aborting(e, _) => *e == op.effect(),
                 _ => false,
             };
             if !mine {
@@ -115,7 +115,7 @@ fn handled(level: Level, n: Norm) -> Norm {
 fn stated(e: std::any::TypeId, rt: Rc<StatefulRt>, s: Rc<dyn std::any::Any>, n: Norm) -> Norm {
     match n {
         Norm::Done(v) => Norm::Done((rt.ret)(s, v)),
-        Norm::Op(op, k) if op.effect == e => {
+        Norm::Op(op, k) if op.effect() == e => {
             let (s2, v) = (rt.step)(s, op.value);
             stated(e, rt, s2, k(v))
         }
