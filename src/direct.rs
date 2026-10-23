@@ -1,3 +1,8 @@
+//! SUPERSEDED (2026-10-23) by `okay::typed`, the one API: the same evidence passing — a program generic over its
+//! context, monomorphized, an operation a call of its handler — with the rest taken too (either, generate, replay,
+//! a host). Typed is as fast or faster (`answered` 0.28 vs 2.45 µs per 1000, `writer` 0.94 vs 0.74). Kept, not
+//! developed (`specs/one-api.md`).
+//!
 //! LEVEL 1 — EFFECTS PASSED DOWN, DIRECT STYLE (evidence passing, as Koka and Effekt do): for the effects whose
 //! handler answers and goes on — a reader, a state, a writer, a log, an audit; most of a program's. An effect is a
 //! trait, its handler a value implementing it, a program a generic function taking the effects it uses as parameters:

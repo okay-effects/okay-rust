@@ -515,6 +515,9 @@ handed out.
 
 ## Level 1: effects passed down, direct style
 
+> SUPERSEDED (2026-10-23) by `okay::typed`, the one API: the same evidence passing, and the rest taken too; as
+> fast or faster. Kept, not developed.
+
 The principled answer to the speed of level 2 (below): most effects — a reader, a state, a writer, a log, an audit —
 answer and go on, they never need `k`; for them a program as data is pure cost. `okay::direct` (a prototype) passes
 them DOWN as parameters, as Koka and Effekt do (evidence passing): an effect is a trait, its handler a value, a

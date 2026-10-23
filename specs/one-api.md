@@ -40,12 +40,17 @@ Tests: `tests/pstate.rs`'s protocol and pipeline, with the compile_fail cases.
 2. This spec. DONE.
 3. `Dyn` layer — DONE 2026-10-23 as `Policies<E>` (an `Interceptor` of rules set at run time; a sensitive effect's
    audit too) and watches in a `Vec` under `observe`; lanes `T:dyn0/1/4`: 1.09 / 2.64 / 5.76 µs per 1000.
-4. `Hosted`: the step protocol and the wire on typed — DONE as `okay::host` (2026-10-23); the TCK digest on typed:
-   to do.
+4. `Hosted`: the step protocol and the wire on typed — DONE as `okay::host` (2026-10-23). The TCK digest on typed:
+   BLOCKED on a gap found — the TCK nests handlers at run time to any depth (the machine's `intercept`); a typed
+   context is a static type, so this needs a DYNAMIC CONTEXT: a handler stack built at run time, each layer a
+   `dyn` handling effects by `TypeId` (`Step`'s `Answer` is already erased), and a replay over it — which must clone
+   an erased answer (`Val` has no clone today: a clone fn kept beside it). An interpreter of user scripts needs the
+   same; nothing else does yet.
 5. Guards on typed: `ensure`, `recover`, `uncancelable` — DONE 2026-10-23 (a drop guard; `catch_unwind` around a
    poll; a host's cancel waits on the computation's `Mask`). tests/typed_guard.rs.
 6. Typestate on typed (above) — DONE 2026-10-23: tests/typestate.rs, compile_fail in src/guarantees.rs.
-7. `okay::direct` folded into typed (typed is already faster: 0.25 vs 2.45). okay-effects: DECIDED and DONE
+7. `okay::direct` folded into typed — DONE 2026-10-23: marked superseded (typed `answered` 0.28 vs 2.45; `D:stateDyn`
+   1.21 vs `T:stateOpaque` 1.98 the one lane direct wins). okay-effects: DECIDED and DONE
    2026-10-23 — its capabilities, protocol, middleware, every path, branches (`join`/`both`/`race`), streams and
    wire on the one API (`okay::host`, `okay::typed`); `examples/shop` on it; the crate kept, marked superseded.
 8. The machine's leftovers, only as far as it stays a working backend: `choose` copying, a nested `flat_map` boxed,
