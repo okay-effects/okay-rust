@@ -71,3 +71,7 @@ date	sha	arm	host_load	lane	us_per_run	note
 2026-10-23	17b7a80+policies	dyn	6.7	T:dyn1	2.639	one rule passing on
 2026-10-23	17b7a80+policies	dyn	6.7	T:dyn4	5.756	four rules: ~1 ns a rule
 2026-10-23	17b7a80+policies	dyn	6.7	T:observed	12.042	
+2026-10-23	fe9c2bc+dynamic	box op	6.0	T:dynCx	10.631	A/B 3 rounds: the op boxed
+2026-10-23	fe9c2bc+dynamic	val op	6.0	T:dynCx	2.520	the op in a Val (small in place): -76%
+2026-10-23	fe9c2bc+dynamic	box op	6.0	T:dynCx4	14.728	
+2026-10-23	fe9c2bc+dynamic	val op	6.0	T:dynCx4	10.735	~2 ns a layer passed

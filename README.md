@@ -510,6 +510,17 @@ is the context it is given. What okay-effects did with capabilities, the one API
   by a watch. `tests/typestate.rs`: tests/pstate.rs's protocol and pipeline. Answer-type modification itself (`Cont`,
   `$`, `shift0`) stays the machine's.
 
+- **A context built at run time** (`okay::dynamic`): handlers nested to any depth, in an order known only when the
+  program runs (an interpreter of scripts, the TCK) — `Dyn`, a context like any (the same `needs!` programs), behind it
+  a chain of layers: `With::new(outer, handler)` (a sensitive effect's only `With::audited(outer, Audited::new(…))`),
+  `either`, `all`/`first` by replay. A handler inside a replayed body is made again on each path — each resumption
+  from the state as it was, the machine's stateful handlers; `Shared::new(outer, make)` is ONE object for every path,
+  its past told again, not done again — a cell every resumption of a `k` sees. OKAY-KERNEL'S TCK DIGEST ON THE ONE API:
+  `tests/tck_typed.rs` interprets the thousand random programs over `Dyn` — the digest the machine's
+  (-8623788747993822161; with `With` for the cell instead of `Shared`, another). µs per 1000 operations: one layer
+  2.52 (the operation in a `Val`, small in place: the boxed one was 10.63), four layers 10.7 (~2 ns a layer passed).
+  `tests/dynamic.rs`.
+
 The shop (`examples/shop`) is the whole of it: one checkout, in process under production and test handlers, and
 handed out.
 

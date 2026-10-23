@@ -12,6 +12,7 @@ compiles to is chosen by the CONTEXT the caller gives, never by the program:
 | static (`Cx(handler, rest)`, `Audited::new(h, i)`, `observe`) | handlers and interceptors known at compile time, monomorphized, inlined | `answered` 0.25 µs / 1000 ops, an interceptor free |
 | `Policies<E>` under `Audited` | interceptors, audit policies installed at run time (config, a tenant) | ~1 ns a rule an operation (`T:dyn1` 2.64 µs / 1000) |
 | `okay::host` (`Outside<E>`) | an operation no layer takes is ASKED of a host: okay-kernel's protocol (step, resume, fail, cancel), okay's wire | the suspended future is the one-shot `k` |
+| `okay::dynamic::Dyn` | handlers nested at run time, to any depth (scripts, the TCK) | 2.5 µs / 1000 a layer, ~2 ns each further |
 | `Paths` (`all`, `first`) | the rest taken many times, by replay | a path's prefix answered again from the log |
 
 The guarantee holds in every one: a `Sensitive` effect enters a context only under its audit (`Allowed`, sealed) —
@@ -40,12 +41,10 @@ Tests: `tests/pstate.rs`'s protocol and pipeline, with the compile_fail cases.
 2. This spec. DONE.
 3. `Dyn` layer — DONE 2026-10-23 as `Policies<E>` (an `Interceptor` of rules set at run time; a sensitive effect's
    audit too) and watches in a `Vec` under `observe`; lanes `T:dyn0/1/4`: 1.09 / 2.64 / 5.76 µs per 1000.
-4. `Hosted`: the step protocol and the wire on typed — DONE as `okay::host` (2026-10-23). The TCK digest on typed:
-   BLOCKED on a gap found — the TCK nests handlers at run time to any depth (the machine's `intercept`); a typed
-   context is a static type, so this needs a DYNAMIC CONTEXT: a handler stack built at run time, each layer a
-   `dyn` handling effects by `TypeId` (`Step`'s `Answer` is already erased), and a replay over it — which must clone
-   an erased answer (`Val` has no clone today: a clone fn kept beside it). An interpreter of user scripts needs the
-   same; nothing else does yet.
+4. `Hosted`: the step protocol and the wire on typed — DONE as `okay::host` (2026-10-23). The TCK digest on typed —
+   DONE 2026-10-23: `okay::dynamic` (a context built at run time: layers by `TypeId`, either, all/first by replay
+   with a cloner carried by each operation; `Shared` for a handler every path sees), tests/tck_typed.rs = the
+   machine's digest.
 5. Guards on typed: `ensure`, `recover`, `uncancelable` — DONE 2026-10-23 (a drop guard; `catch_unwind` around a
    poll; a host's cancel waits on the computation's `Mask`). tests/typed_guard.rs.
 6. Typestate on typed (above) — DONE 2026-10-23: tests/typestate.rs, compile_fail in src/guarantees.rs.

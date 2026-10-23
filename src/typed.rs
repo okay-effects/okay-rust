@@ -190,7 +190,7 @@ pub trait Interceptor<E: Effect, R, Ix> {
 }
 
 /// the handler an interceptor passes an operation on to — the only way to it
-pub struct Pass<'h, H>(&'h H);
+pub struct Pass<'h, H>(pub(crate) &'h H);
 
 impl<'h, H> Pass<'h, H> {
     /// the operation `make` given a reply, handled: its value now, or none — the handler took the rest (a host's: the
@@ -226,8 +226,8 @@ impl<'h, H> Pass<'h, H> {
 /// A HANDLER UNDER ITS INTERCEPTOR: each operation of the effect goes through the interceptor, the handler reached
 /// only by it — the only way a sensitive effect is handled. Its handler not reachable from outside it either
 pub struct Audited<H, I> {
-    handler: H,
-    interceptor: I,
+    pub(crate) handler: H,
+    pub(crate) interceptor: I,
 }
 
 impl<H, I> Audited<H, I> {
@@ -601,7 +601,7 @@ impl<W: Clone + std::fmt::Debug + 'static> Handles<Writer<W>> for Collect<W> {
 
 /// the handler of `Throws<E>` that `either` puts in the context: the error kept, the rest taken (never given back). In
 /// a context itself (`Raised::new()`), past an interceptor raising, with `catch`
-pub struct Raised<E>(RefCell<Option<E>>);
+pub struct Raised<E>(pub(crate) RefCell<Option<E>>);
 impl<E> Raised<E> {
     pub fn new() -> Self {
         Raised(RefCell::new(None))

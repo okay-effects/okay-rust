@@ -87,6 +87,10 @@ Two crates in one workspace: the root `okay` (okay-core's kernel ported — what
   `recover` (not `host::CancelFired`), `uncancelable` (the computation's `host::Mask`, set thread-locally while it is
   stepped; `Computation::cancel` inside gives the step back). tests/typed_guard.rs. Typestate by ownership:
   tests/typestate.rs, compile_fail in src/guarantees.rs.
+- `okay::dynamic` (src/dynamic.rs): `Dyn` = `&dyn Layer` (perform `AnyOp` — the op in a `Val`, its effect's
+  `TypeId`, a `Cloner` made where the answer's type is known; resume by effect; `replay()` the nearest `Paths`).
+  `With` (a handler; `audited` for a sensitive one), `Shared` (one object for every path, its past replayed — the
+  TCK's cell), `either`, `all`, `first`. tests/dynamic.rs, tests/tck_typed.rs (the machine's digest: keep it so).
 - THE ONE API (`specs/one-api.md`): new work goes to `okay::typed`/`okay::host`; the machine is the specification.
 
 ## okay-effects (`effects/`) — SUPERSEDED by `okay::typed` + `okay::host` (2026-10-23); kept, not developed

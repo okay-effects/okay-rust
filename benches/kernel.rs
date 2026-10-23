@@ -466,6 +466,20 @@ mod typed {
     pub fn dyn0() -> bool { run(is_even(&Cx(Audited::new(Ticking, policies(0)), End), black_box(N))).unwrap_or(false) }
     pub fn dyn1() -> bool { run(is_even(&Cx(Audited::new(Ticking, policies(1)), End), black_box(N))).unwrap_or(false) }
     pub fn dyn4() -> bool { run(is_even(&Cx(Audited::new(Ticking, policies(4)), End), black_box(N))).unwrap_or(false) }
+    /// a context built at run time: the operation boxed, one layer passed through a pointer
+    pub fn dyn_cx() -> bool {
+        let layer = okay::dynamic::With::new(okay::dynamic::root(), Ticking);
+        run(is_even(&layer.cx(), black_box(N))).unwrap_or(false)
+    }
+    /// the same, the handler four layers out
+    pub fn dyn_cx4() -> bool {
+        use okay::dynamic::{root, With};
+        let t = With::new(root(), Ticking);
+        let a = With::new(t.cx(), AskWith(1i64));
+        let b = With::new(a.cx(), StateCell::new(0i64));
+        let c = With::new(b.cx(), Collect::<String>::new());
+        run(is_even(&c.cx(), black_box(N))).unwrap_or(false)
+    }
     pub fn intercepted() -> bool { run(is_even(&Cx(Audited::new(Ticking, Passing), End), black_box(N))).unwrap_or(false) }
 
     /// a watch seeing every operation, its effect named, keeping none: `answered` under it
@@ -607,6 +621,8 @@ fn main() {
         ("T:dyn0", Box::new(|| typed::dyn0() as u64)),
         ("T:dyn1", Box::new(|| typed::dyn1() as u64)),
         ("T:dyn4", Box::new(|| typed::dyn4() as u64)),
+        ("T:dynCx", Box::new(|| typed::dyn_cx() as u64)),
+        ("T:dynCx4", Box::new(|| typed::dyn_cx4() as u64)),
     ];
     // each lane's answer, the Scala lanes' own
     assert!(answered() && general() && forwarded() && forwarded16() && forwarded_k() && forwarded_k16());
@@ -614,7 +630,7 @@ fn main() {
     assert_eq!((left_maps(), right_maps(), throwing(), throwing_k(), choose()), (N, N, 2 * N, 2 * N, N as usize));
     assert!(direct::answered());
     assert!(typed::answered() && typed::intercepted() && typed::observed());
-    assert!(typed::dyn0() && typed::dyn1() && typed::dyn4());
+    assert!(typed::dyn0() && typed::dyn1() && typed::dyn4() && typed::dyn_cx() && typed::dyn_cx4());
     assert_eq!((typed::reads(), typed::writer(), typed::state(), typed::state_deep(), typed::throwing(), typed::generate_()),
         (N, N as usize, N, N, 2 * N, N * (N - 1) / 2));
     assert_eq!((typed::state_opaque(), typed::reads_opaque(), typed::choose()), (N, N, N as usize));
