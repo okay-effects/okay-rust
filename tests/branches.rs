@@ -2,7 +2,7 @@
 //! the branches' waits overlap, their effects' handlers shared, a host answering them one at a time
 use std::cell::{Cell, RefCell};
 use std::future::Future;
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -228,11 +228,7 @@ fn an_error_raised_in_a_branch_drops_every_branch() {
             }
             let _c = Count(d);
             sleep(10 * i as u64).await;
-            if i == 2 {
-                raise::<String, i64, _, _>(cx, "two".into()).await
-            } else {
-                i
-            }
+            if i == 2 { raise::<String, i64, _, _>(cx, "two".into()).await } else { i }
         }))
         .await
     }));

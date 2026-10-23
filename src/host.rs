@@ -31,7 +31,7 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::future::Future;
 use std::marker::PhantomData;
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -259,7 +259,10 @@ pub type Middleware<'a> =
     Box<dyn FnMut(&Asked, &mut dyn FnMut(&Asked) -> Result<Data, String>) -> Result<Data, String> + 'a>;
 
 /// the program run to its value, every operation it asks answered by `answer`
-pub fn drive<A>(mut c: Computation<'_, A>, mut answer: impl FnMut(&Asked) -> Result<Data, String>) -> Result<A, String> {
+pub fn drive<A>(
+    mut c: Computation<'_, A>,
+    mut answer: impl FnMut(&Asked) -> Result<Data, String>,
+) -> Result<A, String> {
     let mut s = c.step();
     loop {
         s = match s {

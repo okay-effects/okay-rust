@@ -1058,7 +1058,9 @@ async fn poll_branches(mut bs: Vec<Branch<'_>>, first: bool) -> Option<usize> {
 
 /// each branch writing its value into its slot
 fn slotted<'a, T, F: Future<Output = T> + 'a>(slots: &'a mut [Option<T>], futs: Vec<F>) -> Vec<Branch<'a>> {
-    let one = |(slot, f): (&'a mut Option<T>, F)| -> Branch<'a> { Some(Box::pin(async move { *slot = Some(f.await) })) };
+    let one = |(slot, f): (&'a mut Option<T>, F)| -> Branch<'a> {
+        Some(Box::pin(async move { *slot = Some(f.await) }))
+    };
     slots.iter_mut().zip(futs).map(one).collect()
 }
 

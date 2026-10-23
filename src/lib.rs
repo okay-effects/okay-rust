@@ -81,11 +81,16 @@ macro_rules! data {
         $vis struct $name { $($fvis $field: $ty),* }
         impl $crate::IsData for $name {
             fn to_data(&self) -> $crate::Data {
-                $crate::Data::Dict(vec![$(($crate::data::camel(stringify!($field)), $crate::IsData::to_data(&self.$field))),*])
+                $crate::Data::Dict(vec![$((
+                    $crate::data::camel(stringify!($field)),
+                    $crate::IsData::to_data(&self.$field),
+                )),*])
             }
             #[allow(unused_variables)]
             fn from_data(d: &$crate::Data) -> Result<Self, String> {
-                Ok($name { $($field: $crate::IsData::from_data(d.field(&$crate::data::camel(stringify!($field)))?)?),* })
+                Ok($name {
+                    $($field: $crate::IsData::from_data(d.field(&$crate::data::camel(stringify!($field)))?)?),*
+                })
             }
         }
     };

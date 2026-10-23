@@ -15,7 +15,12 @@ use okay::{Data, IsData};
 
 // ---- the services: effects, their operations as data (`wire`) so a host or the wire can answer them
 
-okay::data!(pub struct Receipt { pub paid: bool, pub detail: String });
+okay::data!(
+    pub struct Receipt {
+        pub paid: bool,
+        pub detail: String,
+    }
+);
 
 okay::effect! { pub enum Inventory: Plain, wire { Reserve(item: String) -> bool = reserve; } }
 okay::effect! { pub enum Payments: Sensitive, wire { Charge(user: String, cents: i64) -> Receipt = charge; } }
@@ -138,7 +143,12 @@ impl Handles<Payments> for Card {
 
 // ---- payments over HTTP
 
-okay::data!(pub struct Response { pub status: i64, pub body: String });
+okay::data!(
+    pub struct Response {
+        pub status: i64,
+        pub body: String,
+    }
+);
 okay::effect! { pub enum Http: Plain, wire { Post(url: String, body: String) -> Response = post; } }
 
 /// the HTTP client: each call logged, answered 200
@@ -186,7 +196,9 @@ pub struct Allow;
 impl<R> Interceptor<Payments, R, ()> for Allow {
     fn intercept<'a, H: Handles<Payments>>(&'a self, op: Payments, pass: Pass<'a, H>, _: &'a R) -> Step<'a> {
         match op {
-            Payments::Charge(u, c, r) => pass.perform(|r2| Payments::Charge(u, c, r2)).map_or(Step::Later, |x| Step::Now(r.give(x))),
+            Payments::Charge(u, c, r) => {
+                pass.perform(|r2| Payments::Charge(u, c, r2)).map_or(Step::Later, |x| Step::Now(r.give(x)))
+            }
         }
     }
 }
@@ -201,7 +213,9 @@ impl<R: Has<Throws<Receipt>, I>, I> Interceptor<Payments, R, I> for Limit {
                 let _: Option<()> = now(raise(cx, Receipt { paid: false, detail: "needs approval".into() }));
                 Step::Later
             }
-            Payments::Charge(u, c, r) => pass.perform(|r2| Payments::Charge(u, c, r2)).map_or(Step::Later, |x| Step::Now(r.give(x))),
+            Payments::Charge(u, c, r) => {
+                pass.perform(|r2| Payments::Charge(u, c, r2)).map_or(Step::Later, |x| Step::Now(r.give(x)))
+            }
         }
     }
 }
@@ -224,7 +238,10 @@ pub fn test(items: Stock, approve: bool, sent: Log, user: &str, item: &str, cent
 /// the test assembly under a limit: the receipt, or the one the limit ended the checkout with
 pub fn limited(items: Stock, cents_limit: i64, sent: Log, user: &str, item: &str, cents: i64) -> Receipt {
     let db = Cx(Table(items), End);
-    let cx = Cx(OverDb::new(&db), Cx(Audited::new(Card(true), Limit(cents_limit)), Cx(Mailbox(sent), Cx(Raised::new(), End))));
+    let cx = Cx(
+        OverDb::new(&db),
+        Cx(Audited::new(Card(true), Limit(cents_limit)), Cx(Mailbox(sent), Cx(Raised::new(), End))),
+    );
     let r = run(catch(&cx.1.1.1.0, checkout(&cx, user, item, cents))).expect("every effect answered in place");
     r.unwrap_or_else(|stopped| stopped)
 }

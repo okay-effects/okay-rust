@@ -150,11 +150,13 @@ fn make() -> Worker {
             }
         }));
     }
-    // the Rust shop, unchanged, handed out: its effects answered by okay, step by step — payments under their interceptor
+    // the Rust shop, unchanged, handed out: its effects answered by okay, step by step — payments under their
+    // interceptor
     functions.insert("checkout".into(), function(|args| {
         let (user, item, cents) = (String::from_value(&args[0])?, String::from_value(&args[1])?, i64::from_value(&args[2])?);
         let run = start(move |h| async move {
-            let cx = Cx(h.outside::<Inventory>(), Cx(Audited::new(h.outside::<Payments>(), Allow), Cx(h.outside::<Notify>(), End)));
+            let pay = Audited::new(h.outside::<Payments>(), Allow);
+            let cx = Cx(h.outside::<Inventory>(), Cx(pay, Cx(h.outside::<Notify>(), End)));
             checkout(&cx, &user, &item, cents).await
         });
         let r = drive(run, remote(|name: &str, args: Vec<Data>| {
@@ -164,7 +166,9 @@ fn make() -> Worker {
     }));
     // a Rust handler, served to okay by its operation's name
     let charge = okay_kernel::wire::serve(|op: Payments| match op {
-        Payments::Charge(user, cents, r) => r.give(Receipt { paid: cents <= 5000, detail: format!("rust-{user}-{cents}") }),
+        Payments::Charge(user, cents, r) => {
+            r.give(Receipt { paid: cents <= 5000, detail: format!("rust-{user}-{cents}") })
+        }
     });
     functions.insert("charge".into(), function(move |args| {
         let rec = args.first().map(data).unwrap_or(Data::Dict(vec![]));

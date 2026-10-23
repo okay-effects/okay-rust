@@ -90,15 +90,19 @@ fn consumed_inside_an_effectful_program() {
     let cx = Cx(Ten, End);
     let got = run(either(&cx, async |cx| {
         let mut sum = 0;
-        generate(cx, |x: i64| sum += x, async |g| {
-            for i in 0.. {
-                log.borrow_mut().push(i);
-                if i == 3 {
-                    raise::<String, (), _, _>(g, "enough".into()).await;
+        generate(
+            cx,
+            |x: i64| sum += x,
+            async |g| {
+                for i in 0.. {
+                    log.borrow_mut().push(i);
+                    if i == 3 {
+                        raise::<String, (), _, _>(g, "enough".into()).await;
+                    }
+                    emit(g, i).await;
                 }
-                emit(g, i).await;
-            }
-        })
+            },
+        )
         .await;
         sum + ask_i(cx).await
     }));

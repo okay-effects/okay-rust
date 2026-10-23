@@ -2,7 +2,9 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use okay::host::{drive, every_path, only, record, remote, replay, start, with, Answerer, Asked, Computation, Entry, Routes, Step};
+use okay::host::{
+    Answerer, Asked, Computation, Entry, Routes, Step, drive, every_path, only, record, remote, replay, start, with,
+};
 use okay::typed::*;
 use okay::{Data, IsData};
 use okay_shop::*;
@@ -10,7 +12,10 @@ use okay_shop::*;
 /// the checkout handed out: its effects answered by whoever steps it — payments still under their interceptor
 fn handed_out(user: &'static str, item: &'static str, cents: i64) -> Computation<'static, Receipt> {
     start(move |h| async move {
-        let cx = Cx(h.outside::<Inventory>(), Cx(Audited::new(h.outside::<Payments>(), Allow), Cx(h.outside::<Notify>(), End)));
+        let cx = Cx(
+            h.outside::<Inventory>(),
+            Cx(Audited::new(h.outside::<Payments>(), Allow), Cx(h.outside::<Notify>(), End)),
+        );
         checkout(&cx, user, item, cents).await
     })
 }
@@ -182,7 +187,10 @@ fn every_operation_through_the_same_middleware() {
         ],
     );
 
-    assert_eq!(drive(handed_out("bob", "book", 2000), &mut answer), Ok(Receipt { paid: true, detail: "ch_bob".into() }));
+    assert_eq!(
+        drive(handed_out("bob", "book", 2000), &mut answer),
+        Ok(Receipt { paid: true, detail: "ch_bob".into() })
+    );
     assert!(audit.borrow()[1].starts_with("charge Dict([(\"user\", Str(\"bob\")), (\"cents\", Int(2000))]) -> Ok("));
     // refused by security: raised where Charge was performed, so no mail goes out
     assert_eq!(drive(handed_out("eve", "book", 100), &mut answer), Err("forbidden: charge eve".into()));
@@ -190,7 +198,10 @@ fn every_operation_through_the_same_middleware() {
 
     // replay: bob's run again from the recording — the same receipt, no service reached
     let bob: Vec<Entry> = log.borrow()[..3].to_vec();
-    assert_eq!(drive(handed_out("bob", "book", 2000), replay(bob.clone())), Ok(Receipt { paid: true, detail: "ch_bob".into() }));
+    assert_eq!(
+        drive(handed_out("bob", "book", 2000), replay(bob.clone())),
+        Ok(Receipt { paid: true, detail: "ch_bob".into() })
+    );
     // a run that does something else is caught at the first difference
     assert!(drive(handed_out("bob", "book", 3000), replay(bob)).unwrap_err().contains("diverged at 1"));
 }
@@ -226,8 +237,11 @@ fn the_shop_steps_over_the_wire() {
                 ("detail".into(), Data::Str(format!("ch_{}", String::from_data(rec.field("user")?)?))),
             ])),
             "email" => {
-                l.borrow_mut()
-                    .push(format!("{}: {}", String::from_data(rec.field("to")?)?, String::from_data(rec.field("text")?)?));
+                l.borrow_mut().push(format!(
+                    "{}: {}",
+                    String::from_data(rec.field("to")?)?,
+                    String::from_data(rec.field("text")?)?
+                ));
                 Ok(Data::Null)
             }
             other => Err(format!("no {other}")),
@@ -240,7 +254,10 @@ fn the_shop_steps_over_the_wire() {
         *log.borrow(),
         vec!["bob: paid, receipt ch_bob".to_string(), "eve: not paid: pen: out of stock".to_string()]
     );
-    assert_eq!(drive(handed_out("x", "book", 1), remote(|n: &str, _| Err(format!("no {n}")))), Err("no reserve".into()));
+    assert_eq!(
+        drive(handed_out("x", "book", 1), remote(|n: &str, _| Err(format!("no {n}")))),
+        Err("no reserve".into())
+    );
 }
 
 #[test]

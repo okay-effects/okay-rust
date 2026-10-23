@@ -3,7 +3,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use okay::host::{drive, every_path, only, record, remote, replay, start, with, Answerer, Entry, Routes, Step};
+use okay::host::{Answerer, Entry, Routes, Step, drive, every_path, only, record, remote, replay, start, with};
 use okay::typed::*;
 use okay::{Data, IsData};
 

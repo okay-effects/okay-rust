@@ -2,7 +2,7 @@
 //! handler, so two instances of one effect coexist; it cannot escape its handler's scope (a borrow); an error drops
 //! the body, its destructors run; a handler's panic is raised where the operation was performed
 use std::cell::Cell;
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::rc::Rc;
 
 use okay::effect;
@@ -42,9 +42,8 @@ fn two_instances_of_one_effect() {
     assert_eq!(got, Ok(12));
     // one over the other: the index says which — the nearest, `Here`; the outer, `There<Here>`
     let nested = Cx(Is(2i64), &outer);
-    let got = run(async {
-        ask_i::<_, okay::There<okay::Here>>(&nested).await * 10 + ask_i::<_, okay::Here>(&nested).await
-    });
+    let got =
+        run(async { ask_i::<_, okay::There<okay::Here>>(&nested).await * 10 + ask_i::<_, okay::Here>(&nested).await });
     assert_eq!(got, Ok(12));
 }
 
