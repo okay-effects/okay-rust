@@ -52,5 +52,9 @@ Tests: `tests/pstate.rs`'s protocol and pipeline, with the compile_fail cases.
    1.21 vs `T:stateOpaque` 1.98 the one lane direct wins). okay-effects: DECIDED and DONE
    2026-10-23 — its capabilities, protocol, middleware, every path, branches (`join`/`both`/`race`), streams and
    wire on the one API (`okay::host`, `okay::typed`); `examples/shop` on it; the crate kept, marked superseded.
-8. The machine's leftovers, only as far as it stays a working backend: `choose` copying, a nested `flat_map` boxed,
-   the +9–16% since the guards.
+8. The machine's leftovers — DONE as far as measured 2026-10-23: the node smaller (an op's effect in its table,
+   `Kind` 96 → 80: state lanes −11–15%, choose −11%), mimalloc (−20–25% where several allocations an operation).
+   Refuted: a `Val` with no tag, the frames of a rest's copies pooled. Not tried, on purpose: fusing a left-nested
+   `flat_map` over an operation into one frame — the frames composed call each other, so a million left-nested maps
+   would overflow the stack the machine promises not to use. Left: `choose` is malloc/free (42%) and its rest's
+   copies; `state` the loop's dispatch (56%) — the machine is the specification now, the one API is typed.
