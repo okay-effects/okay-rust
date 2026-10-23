@@ -42,8 +42,9 @@ Tests: `tests/pstate.rs`'s protocol and pipeline, with the compile_fail cases.
    audit too) and watches in a `Vec` under `observe`; lanes `T:dyn0/1/4`: 1.09 / 2.64 / 5.76 µs per 1000.
 4. `Hosted`: the step protocol and the wire on typed — DONE as `okay::host` (2026-10-23); the TCK digest on typed:
    to do.
-5. Guards on typed: `ensure`, `recover`, `uncancelable` (a drop guard; `catch_unwind` around a poll).
-6. Typestate on typed (above).
+5. Guards on typed: `ensure`, `recover`, `uncancelable` — DONE 2026-10-23 (a drop guard; `catch_unwind` around a
+   poll; a host's cancel waits on the computation's `Mask`). tests/typed_guard.rs.
+6. Typestate on typed (above) — DONE 2026-10-23: tests/typestate.rs, compile_fail in src/guarantees.rs.
 7. `okay::direct` folded into typed (typed is already faster: 0.25 vs 2.45). okay-effects: DECIDED and DONE
    2026-10-23 — its capabilities, protocol, middleware, every path, branches (`join`/`both`/`race`), streams and
    wire on the one API (`okay::host`, `okay::typed`); `examples/shop` on it; the crate kept, marked superseded.

@@ -46,6 +46,40 @@ use crate::wire::{AnswerOut, Remote};
 thread_local! {
     /// an operation is out with a host, not answered yet: branches (`join`, `race`) poll only the one that asked
     static OUT: Cell<bool> = const { Cell::new(false) };
+    /// the mask of the computation being stepped: `uncancelable` regions in it, a cancel waiting for them to end
+    static MASK: RefCell<Option<Rc<Mask>>> = const { RefCell::new(None) };
+}
+
+/// a computation's uncancelable regions entered and not left, and a cancel asked meanwhile
+#[derive(Default)]
+pub(crate) struct Mask {
+    depth: Cell<u32>,
+    cancel: Cell<bool>,
+}
+
+/// the panic payload of a cancel fired when the last uncancelable region is left: no `recover` takes it
+pub(crate) struct CancelFired;
+
+/// the mask of the computation stepped now, if any
+pub(crate) fn mask() -> Option<Rc<Mask>> {
+    MASK.with(|m| m.borrow().clone())
+}
+
+impl Mask {
+    pub(crate) fn enter(&self) {
+        self.depth.set(self.depth.get() + 1);
+    }
+    /// left without firing: the region dropped
+    pub(crate) fn leave_quietly(&self) {
+        self.depth.set(self.depth.get().saturating_sub(1));
+    }
+    /// left: the cancel asked meanwhile fired now, if this was the last region
+    pub(crate) fn leave(&self) {
+        self.depth.set(self.depth.get() - 1);
+        if self.depth.get() == 0 && self.cancel.get() {
+            std::panic::resume_unwind(Box::new(CancelFired));
+        }
+    }
 }
 
 /// whether an operation is out with a host now — the branches' lock
@@ -160,6 +194,7 @@ impl std::task::Wake for Unpark {
 /// A PROGRAM HANDED OUT, run one step at a time
 pub struct Computation<'a, A> {
     slot: Rc<Slot>,
+    mask: Rc<Mask>,
     fut: Option<Pin<Box<dyn Future<Output = A> + 'a>>>,
     asked: Option<Asked>,
 }
@@ -173,10 +208,10 @@ where
 {
     let slot = Rc::new(Slot::default());
     let fut: Pin<Box<dyn Future<Output = A> + 'a>> = Box::pin(body(Host(slot.clone())));
-    Computation { slot, fut: Some(fut), asked: None }
+    Computation { slot, mask: Rc::default(), fut: Some(fut), asked: None }
 }
 
-fn message(p: Box<dyn Any + Send>) -> String {
+pub(crate) fn message(p: &(dyn Any + Send)) -> String {
     p.downcast_ref::<String>()
         .cloned()
         .or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()))
@@ -191,10 +226,12 @@ impl<A> Computation<'_, A> {
         let waker = Waker::from(Arc::new(Unpark(std::thread::current())));
         let mut cx = Context::from_waker(&waker);
         let before = OUT.with(|o| o.replace(false));
+        let outer = MASK.with(|m| m.replace(Some(self.mask.clone())));
         let s = loop {
             match catch_unwind(AssertUnwindSafe(|| fut.as_mut().poll(&mut cx))) {
                 Ok(Poll::Ready(a)) => break Step::Done(a),
-                Err(p) => break Step::Failed(message(p)),
+                Err(p) if p.is::<CancelFired>() => break Step::Cancelled,
+                Err(p) => break Step::Failed(message(&*p)),
                 Ok(Poll::Pending) => {}
             }
             if let Some(a) = self.slot.asked.borrow_mut().take() {
@@ -204,6 +241,7 @@ impl<A> Computation<'_, A> {
             std::thread::park();
         };
         OUT.with(|o| o.set(before));
+        MASK.with(|m| *m.borrow_mut() = outer);
         if !matches!(s, Step::Yielded(_)) {
             self.finish();
         }
@@ -229,9 +267,18 @@ impl<A> Computation<'_, A> {
         self.answer(Err(error))
     }
 
-    /// stopped where it is: the program dropped, its destructors run
+    /// stopped where it is: the program dropped, its destructors and finalizers run. Inside an `uncancelable`
+    /// region the cancel waits: the same step given back, the cancel fired when the region is left
     pub fn cancel(&mut self) -> Step<A> {
+        if self.mask.depth.get() > 0 {
+            self.mask.cancel.set(true);
+            if let Some(a) = self.asked.clone() {
+                return Step::Yielded(a);
+            }
+        }
+        let outer = MASK.with(|m| m.replace(Some(self.mask.clone())));
         self.finish();
+        MASK.with(|m| *m.borrow_mut() = outer);
         Step::Cancelled
     }
 

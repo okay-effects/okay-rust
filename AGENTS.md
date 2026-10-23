@@ -83,6 +83,10 @@ Two crates in one workspace: the root `okay` (okay-core's kernel ported — what
   `effect!` macro writes it. Tests: tests/host.rs, branches.rs, typed_stream.rs, capabilities.rs; examples/shop.
 - `Policies<E>` (typed.rs): an `Interceptor` of rules set at run time (`Policy<E>`: `for<'h> Fn(E, &dyn Fn(E) -> Step<'h>)`),
   the first outermost; `impl Watch for Vec<Box<dyn Watch>>`. tests/policies.rs; lanes `T:dyn0/1/4`.
+- Guards on typed (typed.rs): `ensure` (a drop guard runs the finalizer with `now` when the body is dropped),
+  `recover` (not `host::CancelFired`), `uncancelable` (the computation's `host::Mask`, set thread-locally while it is
+  stepped; `Computation::cancel` inside gives the step back). tests/typed_guard.rs. Typestate by ownership:
+  tests/typestate.rs, compile_fail in src/guarantees.rs.
 - THE ONE API (`specs/one-api.md`): new work goes to `okay::typed`/`okay::host`; the machine is the specification.
 
 ## okay-effects (`effects/`) — SUPERSEDED by `okay::typed` + `okay::host` (2026-10-23); kept, not developed

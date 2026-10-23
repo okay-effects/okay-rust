@@ -912,6 +912,84 @@ pub async fn tail_rec<S, A>(s0: S, step: impl AsyncFn(S) -> Loop<S, A>) -> A {
     }
 }
 
+// GUARDS: a finalizer, a failure recovered, a region a host's cancel waits for
+
+/// the body polled to its value, or to the panic out of it — caught there, the body left where it panicked
+async fn caught<A>(mut body: Pin<&mut impl Future<Output = A>>) -> Result<A, Box<dyn std::any::Any + Send>> {
+    std::future::poll_fn(|c| match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| body.as_mut().poll(c))) {
+        Ok(Poll::Ready(a)) => Poll::Ready(Ok(a)),
+        Ok(Poll::Pending) => Poll::Pending,
+        Err(p) => Poll::Ready(Err(p)),
+    })
+    .await
+}
+
+/// `body`, then `fin`'s program — after its value, after a panic in it (then the panic goes on), and when the body is
+/// dropped where it is (an error raised past it, a race lost, a host's cancel): then `fin` runs at once, answered in
+/// place (a finalizer that waits on the world is cut short, as a destructor would be). Nested, innermost first; a
+/// finalizer's panic replaces the one it ran after. Under `all`, once per path
+pub async fn ensure<A, F: Future<Output = ()>>(body: impl Future<Output = A>, fin: impl FnOnce() -> F) -> A {
+    struct Unrun<M, F>(Option<M>, PhantomData<F>)
+    where
+        M: FnOnce() -> F,
+        F: Future<Output = ()>;
+    impl<M: FnOnce() -> F, F: Future<Output = ()>> Drop for Unrun<M, F> {
+        fn drop(&mut self) {
+            if let Some(fin) = self.0.take() {
+                let _ = now(fin());
+            }
+        }
+    }
+    let mut unrun = Unrun(Some(fin), PhantomData);
+    let mut body = pin!(body);
+    let ended = caught(body.as_mut()).await;
+    let fin = unrun.0.take().expect("the finalizer run once");
+    fin().await;
+    match ended {
+        Ok(a) => a,
+        Err(p) => std::panic::resume_unwind(p),
+    }
+}
+
+/// `body`'s value, or `f` given the failure in it — a panic, a host's `fail` raised where it was performed — not an
+/// effect's error (`raise`: its handler's), not a host's cancel
+pub async fn recover<A>(body: impl Future<Output = A>, f: impl FnOnce(String) -> A) -> A {
+    let mut body = pin!(body);
+    let ended = caught(body.as_mut()).await;
+    match ended {
+        Ok(a) => a,
+        Err(p) if p.is::<crate::host::CancelFired>() => std::panic::resume_unwind(p),
+        Err(p) => f(crate::host::message(&*p)),
+    }
+}
+
+/// `body` not cancelled by a host while it runs: a cancel asked meanwhile gives the same step back, and fires when the
+/// body is done (its value dropped, the finalizers outside run, no `recover` asked). Only a host's cancel waits —
+/// dropping a future is Rust's own and is not masked
+pub async fn uncancelable<A>(body: impl Future<Output = A>) -> A {
+    let Some(mask) = crate::host::mask() else { return body.await };
+    /// the region dropped where it is (by a raise past it): left, nothing fired
+    struct Leave(Rc<crate::host::Mask>, bool);
+    impl Drop for Leave {
+        fn drop(&mut self) {
+            if !self.1 {
+                self.0.leave_quietly();
+            }
+        }
+    }
+    mask.enter();
+    let mut leave = Leave(mask.clone(), false);
+    let mut body = pin!(body);
+    let ended = caught(body.as_mut()).await;
+    leave.1 = true;
+    // left: a cancel asked meanwhile fires now — over the region's value, or its failure
+    mask.leave();
+    match ended {
+        Ok(a) => a,
+        Err(p) => std::panic::resume_unwind(p),
+    }
+}
+
 // EVERY OPERATION OF EVERY EFFECT: a watch between the body and its handlers
 
 /// sees each operation on its way out — its effect (`Reader<i64>`), the operation as written (`Put(6, _)`) — lets it

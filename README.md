@@ -498,6 +498,18 @@ is the context it is given. What okay-effects did with capabilities, the one API
   µs per 1000 operations: a static interceptor 0.28; policies with no rule 1.09, one 2.64, four 5.76 (~1 ns a
   rule); `observe` 12.0. `tests/policies.rs`.
 
+- **Guards**: `ensure(body, || fin)` — the finalizer after the value, after a panic (the panic goes on), and when
+  the body is dropped where it is (an error raised past it, a race lost, a host's cancel: then answered in place);
+  nested innermost first, a finalizer's panic replacing the one before, once a path under `all`. `recover(body, f)`
+  — a panic, a host's `fail`; not a `raise`, not a cancel. `uncancelable(body)` — a host's cancel inside gives the
+  same step back and fires when the region is left, over its value or its failure. `tests/typed_guard.rs`
+  (tests/guard.rs's programs, as far as an async body has them).
+- **A state whose type the steps move** (`PState`'s purpose) by OWNERSHIP: the state a token each step takes and gives
+  (`Sess<Open>` → `Sess<Authed>`), the session owing `Sess<Closed>` back — a query before the login, a session left
+  open, an old state used again do not compile (`src/guarantees.rs`); the operations still through the context, seen
+  by a watch. `tests/typestate.rs`: tests/pstate.rs's protocol and pipeline. Answer-type modification itself (`Cont`,
+  `$`, `shift0`) stays the machine's.
+
 The shop (`examples/shop`) is the whole of it: one checkout, in process under production and test handlers, and
 handed out.
 
