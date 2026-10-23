@@ -81,6 +81,8 @@ Two crates in one workspace: the root `okay` (okay-core's kernel ported — what
   says an op is out with a host: `join`/`both`/`race` (typed.rs, `poll_branches`) lock to the branch that asked.
   `stream` (typed.rs): the body by value, `Emitter` an Rc slot. `Remote::out` (each op's answer as data) — the
   `effect!` macro writes it. Tests: tests/host.rs, branches.rs, typed_stream.rs, capabilities.rs; examples/shop.
+- `Policies<E>` (typed.rs): an `Interceptor` of rules set at run time (`Policy<E>`: `for<'h> Fn(E, &dyn Fn(E) -> Step<'h>)`),
+  the first outermost; `impl Watch for Vec<Box<dyn Watch>>`. tests/policies.rs; lanes `T:dyn0/1/4`.
 - THE ONE API (`specs/one-api.md`): new work goes to `okay::typed`/`okay::host`; the machine is the specification.
 
 ## okay-effects (`effects/`) — SUPERSEDED by `okay::typed` + `okay::host` (2026-10-23); kept, not developed

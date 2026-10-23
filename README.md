@@ -491,6 +491,13 @@ is the context it is given. What okay-effects did with capabilities, the one API
 - **Streams**: `stream(cx, async |cx| … emit(&cx, v).await …)` — an `Iterator`, the body run a step per value,
   dropped where it is when the iterator is. `tests/typed_stream.rs`.
 
+- **Interceptors set at run time**: `Policies<E>` — an interceptor whose rules are closures added while programs run
+  (from a configuration, per tenant): each given the operation and `next`, it passes it on (as it is or changed, the
+  reply carried along), answers it, or refuses it. `Audited::new(handler, policies)`: a sensitive effect's audit
+  too — the type still says "audited", the rules are data. And watches in a `Vec<Box<dyn Watch>>` under `observe`.
+  µs per 1000 operations: a static interceptor 0.28; policies with no rule 1.09, one 2.64, four 5.76 (~1 ns a
+  rule); `observe` 12.0. `tests/policies.rs`.
+
 The shop (`examples/shop`) is the whole of it: one checkout, in process under production and test handlers, and
 handed out.
 

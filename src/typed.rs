@@ -244,6 +244,69 @@ impl<H, I> Audited<H, I> {
     }
 }
 
+// POLICIES: an interceptor whose rules are set at run time — from a configuration, per tenant — each a closure over
+// the effect's operations, in order, the first outermost
+
+/// A RULE OF `E`, set at run time: given an operation and `next` (the rules after it, then the handler), it passes the
+/// operation on (`next(op)`, as it is or changed — the reply carried along), answers it itself (`r.give(…)`), or
+/// refuses it with an answer saying so
+pub type Policy<E> = Box<dyn for<'h> Fn(E, &dyn Fn(E) -> Step<'h>) -> Step<'h>>;
+
+/// AN INTERCEPTOR OF RULES SET AT RUN TIME: `Audited::new(handler, policies)` — a sensitive effect's audit too, its
+/// rules changed while programs run (`add`, `clear`). A cost per rule of one call through a pointer; none set, every
+/// operation passed on. A rule adding a rule while it runs is refused (the list is borrowed)
+pub struct Policies<E>(RefCell<Vec<Policy<E>>>);
+
+impl<E> Policies<E> {
+    pub fn new() -> Self {
+        Policies(RefCell::new(Vec::new()))
+    }
+    /// a rule, after those set before
+    pub fn add(&self, rule: impl for<'h> Fn(E, &dyn Fn(E) -> Step<'h>) -> Step<'h> + 'static) -> &Self {
+        self.0.borrow_mut().push(Box::new(rule));
+        self
+    }
+    /// a rule, built with it
+    pub fn with(self, rule: impl for<'h> Fn(E, &dyn Fn(E) -> Step<'h>) -> Step<'h> + 'static) -> Self {
+        self.add(rule);
+        self
+    }
+    /// no rules: every operation passed on
+    pub fn clear(&self) {
+        self.0.borrow_mut().clear();
+    }
+    pub fn len(&self) -> usize {
+        self.0.borrow().len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.0.borrow().is_empty()
+    }
+}
+
+impl<E> Default for Policies<E> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+fn through_rules<'h, E>(rules: &[Policy<E>], op: E, last: &dyn Fn(E) -> Step<'h>) -> Step<'h> {
+    match rules.split_first() {
+        None => last(op),
+        Some((rule, rest)) => rule(op, &|op| through_rules(rest, op, last)),
+    }
+}
+
+impl<E: Effect, R> Interceptor<E, R, ()> for Policies<E> {
+    #[inline]
+    fn intercept<'a, H: Handles<E>>(&'a self, op: E, pass: Pass<'a, H>, _: &'a R) -> Step<'a> {
+        let rules = self.0.borrow();
+        if rules.is_empty() {
+            return pass.0.handle(op);
+        }
+        through_rules(&rules, op, &|op| pass.0.handle(op))
+    }
+}
+
 /// the index of an effect handled under an interceptor: the interceptor's own (`Ix`, where its operations go)
 pub struct Through<Ix>(PhantomData<Ix>);
 
@@ -869,6 +932,16 @@ impl<W: Watch> Watch for &W {
     }
     fn after(&self, effect: &str, op: &dyn Debug, answer: &dyn Debug) {
         (**self).after(effect, op, answer)
+    }
+}
+
+/// WATCHES SET AT RUN TIME: each sees every operation; the first refusing refuses it
+impl Watch for Vec<Box<dyn Watch + '_>> {
+    fn before(&self, effect: &str, op: &dyn Debug) -> Result<(), String> {
+        self.iter().try_for_each(|w| w.before(effect, op))
+    }
+    fn after(&self, effect: &str, op: &dyn Debug, answer: &dyn Debug) {
+        self.iter().for_each(|w| w.after(effect, op, answer))
     }
 }
 

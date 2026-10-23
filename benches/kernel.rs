@@ -455,6 +455,17 @@ mod typed {
             }
         }
     }
+    /// rules set at run time: each a call through a pointer, passing the operation on
+    fn policies(n: usize) -> Policies<Tick> {
+        let ps = Policies::new();
+        for _ in 0..n {
+            ps.add(|op, next| next(op));
+        }
+        ps
+    }
+    pub fn dyn0() -> bool { run(is_even(&Cx(Audited::new(Ticking, policies(0)), End), black_box(N))).unwrap_or(false) }
+    pub fn dyn1() -> bool { run(is_even(&Cx(Audited::new(Ticking, policies(1)), End), black_box(N))).unwrap_or(false) }
+    pub fn dyn4() -> bool { run(is_even(&Cx(Audited::new(Ticking, policies(4)), End), black_box(N))).unwrap_or(false) }
     pub fn intercepted() -> bool { run(is_even(&Cx(Audited::new(Ticking, Passing), End), black_box(N))).unwrap_or(false) }
 
     /// a watch seeing every operation, its effect named, keeping none: `answered` under it
@@ -593,6 +604,9 @@ fn main() {
         ("T:choose", Box::new(|| typed::choose() as u64)),
         ("T:intercepted", Box::new(|| typed::intercepted() as u64)),
         ("T:observed", Box::new(|| typed::observed() as u64)),
+        ("T:dyn0", Box::new(|| typed::dyn0() as u64)),
+        ("T:dyn1", Box::new(|| typed::dyn1() as u64)),
+        ("T:dyn4", Box::new(|| typed::dyn4() as u64)),
     ];
     // each lane's answer, the Scala lanes' own
     assert!(answered() && general() && forwarded() && forwarded16() && forwarded_k() && forwarded_k16());
@@ -600,6 +614,7 @@ fn main() {
     assert_eq!((left_maps(), right_maps(), throwing(), throwing_k(), choose()), (N, N, 2 * N, 2 * N, N as usize));
     assert!(direct::answered());
     assert!(typed::answered() && typed::intercepted() && typed::observed());
+    assert!(typed::dyn0() && typed::dyn1() && typed::dyn4());
     assert_eq!((typed::reads(), typed::writer(), typed::state(), typed::state_deep(), typed::throwing(), typed::generate_()),
         (N, N as usize, N, N, 2 * N, N * (N - 1) / 2));
     assert_eq!((typed::state_opaque(), typed::reads_opaque(), typed::choose()), (N, N, N as usize));

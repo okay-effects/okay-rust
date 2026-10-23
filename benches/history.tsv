@@ -65,3 +65,9 @@ date	sha	arm	host_load	lane	us_per_run	note
 2026-10-23	3510822+host	host+branches	6.9	T:choose	6.331	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
 2026-10-23	3510822+host	host+branches	6.9	T:intercepted	0.279	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
 2026-10-23	3510822+host	host+branches	6.9	T:observed	11.630	A/B: okay::host + join/race/stream; T: lanes within ±2.5%
+2026-10-23	17b7a80+policies	dyn	6.7	T:answered	0.279	3 runs, median; same binary
+2026-10-23	17b7a80+policies	dyn	6.7	T:intercepted	0.285	3 runs, median
+2026-10-23	17b7a80+policies	dyn	6.7	T:dyn0	1.089	Policies, no rule: RefCell borrow, the loop not folded
+2026-10-23	17b7a80+policies	dyn	6.7	T:dyn1	2.639	one rule passing on
+2026-10-23	17b7a80+policies	dyn	6.7	T:dyn4	5.756	four rules: ~1 ns a rule
+2026-10-23	17b7a80+policies	dyn	6.7	T:observed	12.042	

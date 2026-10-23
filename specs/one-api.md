@@ -10,8 +10,8 @@ compiles to is chosen by the CONTEXT the caller gives, never by the program:
 | context layer | what it gives | cost |
 |---|---|---|
 | static (`Cx(handler, rest)`, `Audited::new(h, i)`, `observe`) | handlers and interceptors known at compile time, monomorphized, inlined | `answered` 0.25 µs / 1000 ops, an interceptor free |
-| `Dyn` (to do) | interceptors, audit policies, middleware installed at run time (config, a tenant) | one indirect call per operation (~1 µs / 1000, as `D:readsDyn`) |
-| `Hosted` (to do) | an operation no layer takes is ASKED of a host: okay-kernel's protocol (step, resume, fail, cancel), okay's wire | the suspended future is the one-shot `k` |
+| `Policies<E>` under `Audited` | interceptors, audit policies installed at run time (config, a tenant) | ~1 ns a rule an operation (`T:dyn1` 2.64 µs / 1000) |
+| `okay::host` (`Outside<E>`) | an operation no layer takes is ASKED of a host: okay-kernel's protocol (step, resume, fail, cancel), okay's wire | the suspended future is the one-shot `k` |
 | `Paths` (`all`, `first`) | the rest taken many times, by replay | a path's prefix answered again from the log |
 
 The guarantee holds in every one: a `Sensitive` effect enters a context only under its audit (`Allowed`, sealed) —
@@ -38,7 +38,8 @@ Tests: `tests/pstate.rs`'s protocol and pipeline, with the compile_fail cases.
 1. Allocator: `--features mimalloc`; allocations per run per lane (`--features count-allocs`). DONE: −20–25% where
    several allocations an operation (throwing, choose, T:throwing), noise where none (README's Speed).
 2. This spec. DONE.
-3. `Dyn` layer, lane `T:dyn`.
+3. `Dyn` layer — DONE 2026-10-23 as `Policies<E>` (an `Interceptor` of rules set at run time; a sensitive effect's
+   audit too) and watches in a `Vec` under `observe`; lanes `T:dyn0/1/4`: 1.09 / 2.64 / 5.76 µs per 1000.
 4. `Hosted`: the step protocol and the wire on typed — DONE as `okay::host` (2026-10-23); the TCK digest on typed:
    to do.
 5. Guards on typed: `ensure`, `recover`, `uncancelable` (a drop guard; `catch_unwind` around a poll).
