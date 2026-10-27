@@ -12,8 +12,6 @@ compiles to is chosen by the CONTEXT the caller gives, never by the program:
 | static (`Cx(handler, rest)`, `Audited::new(h, i)`, `observe`) | handlers and interceptors known at compile time, monomorphized, inlined | `answered` 0.25 µs / 1000 ops, an interceptor free |
 | `Policies<E>` under `Audited` | interceptors, audit policies installed at run time (config, a tenant) | ~1 ns a rule an operation (`T:dyn1` 2.64 µs / 1000) |
 | `okay::host` (`Outside<E>`) | an operation no layer takes is ASKED of a host: okay-kernel's protocol (step, resume, fail, cancel), okay's wire | the suspended future is the one-shot `k` |
-| `okay::dynamic::Dyn` | handlers nested at run time, to any depth (scripts, the TCK) | 2.5 µs / 1000 a layer, ~2 ns each further |
-| `Paths` (`all`, `first`) | the rest taken many times, by replay | a path's prefix answered again from the log |
 
 The guarantee holds in every one: a `Sensitive` effect enters a context only under its audit (`Allowed`, sealed) —
 a `Dyn` layer too, since the context's TYPE stays static even when its interceptors are not.
@@ -58,3 +56,9 @@ Tests: `tests/pstate.rs`'s protocol and pipeline, with the compile_fail cases.
    `flat_map` over an operation into one frame — the frames composed call each other, so a million left-nested maps
    would overflow the stack the machine promises not to use. Left: `choose` is malloc/free (42%) and its rest's
    copies; `state` the loop's dispatch (56%) — the machine is the specification now, the one API is typed.
+
+## 2026-10-27: simpler
+
+The user's decisions: the one API is ONE-SHOT — replay removed (typed `all`/`first`/`among`/`flip`/`fail`, the host's
+`every_path`); `okay::dynamic` removed (its reason was the TCK on typed, which needs a choice); the rest taken many
+times is the machine's alone. The machine moves to its own crate (`okay-machine`): `okay` is the one API.

@@ -58,7 +58,6 @@ mod val;
 pub mod audit;
 pub mod typed;
 pub mod host;
-pub mod dynamic;
 pub mod wire;
 
 pub use eff::{defer, perform, pure, tail_rec, Loop, Answer, AnyOp, Bind, Eff, Failure, Guard, Never, Node, Pass, PassingOut, Program, Reply};

@@ -371,20 +371,6 @@ mod typed {
     pub fn dyn0() -> bool { run(is_even(&Cx(Audited::new(Ticking, policies(0)), End), black_box(N))).unwrap_or(false) }
     pub fn dyn1() -> bool { run(is_even(&Cx(Audited::new(Ticking, policies(1)), End), black_box(N))).unwrap_or(false) }
     pub fn dyn4() -> bool { run(is_even(&Cx(Audited::new(Ticking, policies(4)), End), black_box(N))).unwrap_or(false) }
-    /// a context built at run time: the operation boxed, one layer passed through a pointer
-    pub fn dyn_cx() -> bool {
-        let layer = okay::dynamic::With::new(okay::dynamic::root(), Ticking);
-        run(is_even(&layer.cx(), black_box(N))).unwrap_or(false)
-    }
-    /// the same, the handler four layers out
-    pub fn dyn_cx4() -> bool {
-        use okay::dynamic::{root, With};
-        let t = With::new(root(), Ticking);
-        let a = With::new(t.cx(), AskWith(1i64));
-        let b = With::new(a.cx(), StateCell::new(0i64));
-        let c = With::new(b.cx(), Collect::<String>::new());
-        run(is_even(&c.cx(), black_box(N))).unwrap_or(false)
-    }
     okay::effect! { pub enum Hop: Plain, wire { Hop(i: i64) -> i64 = hop; } }
     /// a program handed out: each of its 1000 operations stops it, the host answers it typed (`resume`)
     pub fn hosted() -> i64 {
@@ -440,11 +426,6 @@ mod typed {
             .unwrap_or(false)
     }
 
-    /// every value of a choice among n: n paths, each the body run again, its choice told it
-    pub fn choose() -> usize {
-        let xs: Vec<i64> = (0..N).collect();
-        run(all(&End, async |cx| among(cx, &xs).await + 1)).map(|v| v.len()).unwrap_or(0)
-    }
 }
 
 // THE HARNESS: JMH's AverageTime — warm-up, then rounds of a second, µs a run
@@ -551,16 +532,13 @@ fn main() {
         ("T:readsOpaque", Box::new(|| typed::reads_opaque() as u64)),
         ("T:throwing", Box::new(|| typed::throwing() as u64)),
         ("T:generate", Box::new(|| typed::generate_() as u64)),
-        ("T:choose", Box::new(|| typed::choose() as u64)),
         ("T:intercepted", Box::new(|| typed::intercepted() as u64)),
         ("T:observed", Box::new(|| typed::observed() as u64)),
         ("T:dyn0", Box::new(|| typed::dyn0() as u64)),
         ("T:dyn1", Box::new(|| typed::dyn1() as u64)),
         ("T:dyn4", Box::new(|| typed::dyn4() as u64)),
-        ("T:dynCx", Box::new(|| typed::dyn_cx() as u64)),
         ("H:hosted", Box::new(|| typed::hosted() as u64)),
         ("H:driven", Box::new(|| typed::driven() as u64)),
-        ("T:dynCx4", Box::new(|| typed::dyn_cx4() as u64)),
     ];
     // each lane's answer, the Scala lanes' own
     assert!(answered() && general() && forwarded() && forwarded16() && forwarded_k() && forwarded_k16());
@@ -568,10 +546,10 @@ fn main() {
     assert_eq!((left_maps(), right_maps(), throwing(), throwing_k(), choose()), (N, N, 2 * N, 2 * N, N as usize));
     assert!(typed::answered() && typed::intercepted() && typed::observed());
     assert_eq!((typed::hosted(), typed::driven()), (N * (N - 1) / 2, N * (N - 1) / 2));
-    assert!(typed::dyn0() && typed::dyn1() && typed::dyn4() && typed::dyn_cx() && typed::dyn_cx4());
+    assert!(typed::dyn0() && typed::dyn1() && typed::dyn4());
     assert_eq!((typed::reads(), typed::writer(), typed::state(), typed::state_deep(), typed::throwing(), typed::generate_()),
         (N, N as usize, N, N, 2 * N, N * (N - 1) / 2));
-    assert_eq!((typed::state_opaque(), typed::reads_opaque(), typed::choose()), (N, N, N as usize));
+    assert_eq!((typed::state_opaque(), typed::reads_opaque()), (N, N));
     for (name, f) in &lanes {
         if only.is_empty() || only.iter().any(|o| o == name) {
             lane(name, f.as_ref());

@@ -24,8 +24,6 @@ run(checkout(&cx, "bob", "book", 2000));
 | `Policies<E>` under `Audited` | an interceptor's rules set at run time (a configuration, a tenant) | 2.6, ~1 ns a rule |
 | `observe(cx, watch, …)` | every operation of every effect seen, let through or refused | 12 |
 | `okay::host` (`host.outside::<E>()`) | the program HANDED OUT: stepped by a host (resume, fail, cancel), middleware, a record and its replay, okay's wire | 31 a step answered typed, 59 through a route as data |
-| `okay::dynamic::Dyn` | handlers nested at run time, to any depth (scripts, okay-kernel's TCK) | 2.5 a layer |
-| `all`, `first` | the rest taken many times, by replay | a path's prefix answered again |
 
 And in it: `either`/`raise`, `generate`, `stream` (an `Iterator`), branches on one thread (`join`, `both`, `race`),
 guards (`ensure`, `recover`, `uncancelable`), effects waiting on the world (`block_on`), a state whose type the steps
@@ -34,12 +32,12 @@ move (by ownership), `tail_rec`. The one API: [One API](#one-api-compiled-by-the
 [specs/one-api.md](specs/one-api.md).
 
 THE SPECIFICATION is okay-core's kernel ported as a machine (`Eff`, a program as data, below): okay-core's suites, a
-reference interpreter on random programs, okay-kernel's TCK digest — the one API checked against it (the TCK's
-thousand programs on `okay::dynamic` give the machine's digest). The machine is also the backend of what an `async`
+reference interpreter on random programs, okay-kernel's TCK digest. The machine is also the backend of the rest
+taken MANY times (a choice, every path: the rest as data) and of what an `async`
 body cannot be: answer-type modification (`Cont`, `$`, `shift0`, `PState`).
 
 `examples/shop`: the shop of okay's examples on the one API — one checkout, in process under production and test
-handlers, and handed out: a manager, middleware, a recording and its replay, every path, the wire.
+handlers, and handed out: a manager, middleware, a recording and its replay, the wire.
 `examples/okayhost/TestOkayRustWire.scala`: the same shop under Scala handlers in okay, run against okay's JVM host.
 
 ```
@@ -342,7 +340,7 @@ in a row). Monomorphized for the handlers it runs under, an operation is compile
 - dropping the rest (`either`): the body's future dropped where it raised;
 - taking the rest once (`generate`): the block suspended, resumed once — the state machine itself the `k`, nothing on
   the heap;
-- taking it many times (`choose`): by replay — the body run again for each path, its past told it again (below).
+- taken many times: not here — ONE-SHOT by design; the rest taken many times is the machine's (the rest as data).
 
 No turbofish: an operation's type is inferred from the context's bounds (`Has<Reader<i64>, _>`) or its argument.
 No index parameters either: `needs!` writes them — `cx: [Reader<i64>, State<i64>]` lists the effects, as `row![…]`
@@ -380,33 +378,8 @@ under its own either, a generator with a state in it.
 | `throwing` — each raise under its own either | 20.23 | 94.7 | **7.66** |
 | a generator, 1000 values, the body suspended and resumed at each | 22.6 (okay-one's `generate`) | — | **2.14** |
 
-| `choose` — every value of a choice among 1000 | 13.24 | 107.9 | **6.1** (replay) |
 
 With the context visible, LLVM folds the loops of `reads` and `state` altogether (0.017).
-
-### The rest taken many times: replay
-
-`all(cx, body)` runs the body again for each path, and tells it its past again (Koppel, Scherer, Siek, "Capturing the
-future by replaying the past", ICFP 2018): the choices made so far, and every answer a handler further out gave before
-the last of them — told again, not asked again. So a state further out is threaded through the paths in order,
-exactly as the machine's `all` under it; a state inside the body is each path's own; a writer further out hears what
-was told before a choice once. `first(cx, body)` stops at the first path not failing. `flip`, `among`, `fail`.
-
-```rust
-let cx = Cx(StateCell::new(0i64), End);
-let r = run(all(&cx, async |cx| eff! {
-    s <- get(cx);              // read once: each path resumed with it, as the machine's k holds it
-    b <- flip(cx);
-    _ <- put(cx, s + 1);
-    yield (b, s)
-}.await));
-assert_eq!(r, Ok(vec![(true, 0), (false, 0)]));
-```
-
-The cost: a path's prefix run again — the operations before its last choice answered from the log, not by their
-handlers; n paths of depth d, n × d steps. The rule: the body decides by its effects only (an `AsyncFn`; a cell or the
-clock read outside an effect breaks the replay, and it panics saying so). `tests/replay.rs`: the machine's suite's
-choose programs, a read before the choice, a state in each path, the triples, eight queens (92), `all` inside `all`.
 
 ### Effects waiting on the world
 
@@ -431,8 +404,7 @@ impl Handles<Net> for Network {
 let (a, b) = block_on(both(fetch(&cx, "a".into(), 150), fetch(&cx, "b".into(), 150)));   // 150 ms, not 300
 ```
 
-The layers the same over a wait: the replay logs the answer when it comes (asked once, told again to every path), a
-watch sees it then, an interceptor waits for its handler (`pass.wait(…).await` in its own `Step::Wait`), `either`
+The layers the same over a wait: a watch sees it when it comes, an interceptor waits for its handler (`pass.wait(…).await` in its own `Step::Wait`), `either`
 and `generate` go on around it. `run` polls once: a program waiting says `Stuck`.
 
 An effect that may wait is DECLARED so (`waits`): its operations are `Waiting` futures, keeping the future they wait
@@ -515,7 +487,7 @@ is the context it is given. What capabilities did (okay-effects, now gone), the 
   cancelled (dropped). A sensitive effect is outside only under its interceptor, as any handler of it:
   `Audited::new(host.outside::<Pay>(), Limit(1000))` — a charge over the limit refused before the host sees it.
   Around the host: `drive`, middleware (`with`, `only::<E>`, `record`, `replay`), `Routes` (`on::<E>(|op| … r.give(v))`,
-  or `handler::<E>(h)` — the same handler a context takes), `remote` (okay's wire), `every_path`. `tests/host.rs`.
+  or `handler::<E>(h)` — the same handler a context takes), `remote` (okay's wire). `tests/host.rs`.
 - **Branches**: `join(branches)`, `both(a, b)`, `race(branches)` — polled on one thread, their waits overlapping,
   the handlers of their context shared; an operation out with a host locks the branches to the one that asked until
   it is answered; a branch's panic drops the others. `tests/branches.rs`.
@@ -531,7 +503,7 @@ is the context it is given. What capabilities did (okay-effects, now gone), the 
 
 - **Guards**: `ensure(body, || fin)` — the finalizer after the value, after a panic (the panic goes on), and when
   the body is dropped where it is (an error raised past it, a race lost, a host's cancel: then answered in place);
-  nested innermost first, a finalizer's panic replacing the one before, once a path under `all`. `recover(body, f)`
+  nested innermost first, a finalizer's panic replacing the one before. `recover(body, f)`
   — a panic, a host's `fail`; not a `raise`, not a cancel. `uncancelable(body)` — a host's cancel inside gives the
   same step back and fires when the region is left, over its value or its failure. `tests/typed_guard.rs`
   (tests/guard.rs's programs, as far as an async body has them).
@@ -540,17 +512,6 @@ is the context it is given. What capabilities did (okay-effects, now gone), the 
   open, an old state used again do not compile (`src/guarantees.rs`); the operations still through the context, seen
   by a watch. `tests/typestate.rs`: tests/pstate.rs's protocol and pipeline. Answer-type modification itself (`Cont`,
   `$`, `shift0`) stays the machine's.
-
-- **A context built at run time** (`okay::dynamic`): handlers nested to any depth, in an order known only when the
-  program runs (an interpreter of scripts, the TCK) — `Dyn`, a context like any (the same `needs!` programs), behind it
-  a chain of layers: `With::new(outer, handler)` (a sensitive effect's only `With::audited(outer, Audited::new(…))`),
-  `either`, `all`/`first` by replay. A handler inside a replayed body is made again on each path — each resumption
-  from the state as it was, the machine's stateful handlers; `Shared::new(outer, make)` is ONE object for every path,
-  its past told again, not done again — a cell every resumption of a `k` sees. OKAY-KERNEL'S TCK DIGEST ON THE ONE API:
-  `tests/tck_typed.rs` interprets the thousand random programs over `Dyn` — the digest the machine's
-  (-8623788747993822161; with `With` for the cell instead of `Shared`, another). µs per 1000 operations: one layer
-  2.52 (the operation in a `Val`, small in place: the boxed one was 10.63), four layers 10.7 (~2 ns a layer passed).
-  `tests/dynamic.rs`.
 
 The shop (`examples/shop`) is the whole of it: one checkout, in process under production and test handlers, and
 handed out.

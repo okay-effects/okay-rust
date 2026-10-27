@@ -37,9 +37,8 @@ the user's API; the machine (`Eff`, below) is its specification and the backend 
   `flat_map` is Rust's own recursion: keep it inside a closure.
 - `okay::typed` — ONE API compiled by the handlers' types: `eff! { … }` is an `async` block over a context `cx`
   (`Cx(h, rest)`, `Has<E, Ix>`), a program as data the machine's `eff! { data; … }`. An operation goes through each
-  layer of the context (`Has::perform`/`resume`, typed by its value): `Paths` (`all`/`first`) logs the answers from
-  further out and replays them (many-shot `k` by replay — the body an `AsyncFn` deciding by its effects only),
-  `Observed` (`observe`) shows each to a `Watch`. Interceptors: `Audited::new(handler, interceptor)`, an
+  layer of the context (`Has::perform`/`resume`, typed by its value): ONE-SHOT: the rest taken many times is the machine's
+  (no replay, the user's decision 2026-10-27), `Observed` (`observe`) shows each to a `Watch`. Interceptors: `Audited::new(handler, interceptor)`, an
   `Interceptor<E, R, Ix>` passing each operation on (`Pass`), changing or refusing it, its own operations to the
   context after the handler (`Has<E, Through<Ix>>`); a sensitive effect has no other way into a context (`Allowed`,
   sealed). `tests/typed_intercept.rs` = `tests/intercept.rs`'s programs and trails: keep the three in step. `tail_rec` for recursion in constant stack. `effect!` declares an
@@ -76,7 +75,7 @@ the user's API; the machine (`Eff`, below) is its specification and the backend 
 - `okay::host` (src/host.rs) — a typed program HANDED OUT: `start(|host| …)`, `host.outside::<E>()` (E a `wire`
   effect) a handler whose operations stop the program as `Asked` (`Slot`: the op out, its answer or failure);
   `Computation::{step, resume, resume_data, fail, cancel}`; `drive`, `with`, `only::<E>`, `Routes` (`on`, `handler`),
-  `record`, `replay`, `remote`, `every_path`. An interceptor passing an op to a handler that takes it (a host's)
+  `record`, `replay` (a recorded run answered again), `remote`. An interceptor passing an op to a handler that takes it (a host's)
   answers `Step::Later`; `Has<E, Through<Ix>>::resume` gives the handler's answer back as it is. `OUT` (thread-local)
   says an op is out with a host: `join`/`both`/`race` (typed.rs, `poll_branches`) lock to the branch that asked.
   `stream` (typed.rs): the body by value, `Emitter` an Rc slot. `Remote::out` (each op's answer as data) — the
@@ -87,8 +86,4 @@ the user's API; the machine (`Eff`, below) is its specification and the backend 
   `recover` (not `host::CancelFired`), `uncancelable` (the computation's `host::Mask`, set thread-locally while it is
   stepped; `Computation::cancel` inside gives the step back). tests/typed_guard.rs. Typestate by ownership:
   tests/typestate.rs, compile_fail in src/guarantees.rs.
-- `okay::dynamic` (src/dynamic.rs): `Dyn` = `&dyn Layer` (perform `AnyOp` — the op in a `Val`, its effect's
-  `TypeId`, a `Cloner` made where the answer's type is known; resume by effect; `replay()` the nearest `Paths`).
-  `With` (a handler; `audited` for a sensitive one), `Shared` (one object for every path, its past replayed — the
-  TCK's cell), `either`, `all`, `first`. tests/dynamic.rs, tests/tck_typed.rs (the machine's digest: keep it so).
 - THE ONE API (`specs/one-api.md`): new work goes to `okay::typed`/`okay::host`; the machine is the specification.

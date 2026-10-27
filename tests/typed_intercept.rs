@@ -209,11 +209,14 @@ fn an_observer_refusing_a_sensitive_effect_a_read_only_run() {
 /// "an answer told each time the rest gets it: a choice resumed twice, two answers" — by replay the path runs twice,
 /// a watch inside the choice sees the operation each time, with its answer
 #[test]
-fn an_answer_told_each_time_the_rest_gets_it() {
+fn an_answer_told_when_the_rest_gets_it() {
+    // the rest taken (a generator's emit) and given back once: the answer told then
     let trail = Trail::new();
-    let paths = run(all(&End, async |cx| observe(cx, Telling(&trail), async |cx| flip(cx).await).await.unwrap()));
-    assert_eq!(paths, Ok(vec![true, false]));
-    assert_eq!(trail.take(), vec!["Choose Among(2, _)", "  → 0", "Choose Among(2, _)", "  → 1"]);
+    let got = run(generate(&End, |_: i64| {}, async |g| {
+        observe(g, Telling(&trail), async |cx| emit(cx, 1i64).await).await.unwrap()
+    }));
+    assert_eq!(got, Ok(()));
+    assert_eq!(trail.take(), vec!["Emit<i64> Value(1, _)", "  → ()"]);
 }
 
 /// "a plain effect beside an audited one" — what does not compile (a bare bank, a bank under no interceptor of it,

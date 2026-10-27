@@ -3,7 +3,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use okay::host::{Answerer, Entry, Routes, Step, drive, every_path, only, record, remote, replay, start, with};
+use okay::host::{Answerer, Entry, Routes, Step, drive, only, record, remote, replay, start, with};
 use okay::typed::*;
 use okay::{Data, IsData};
 
@@ -210,22 +210,6 @@ fn over_the_wire_by_name_and_record() {
     });
     assert_eq!(drive(c, answer), Ok((42, true)));
     assert_eq!(calls.borrow()[1], ("flip_coin".to_string(), vec![]));
-}
-
-#[test]
-fn every_path_of_a_handed_out_program() {
-    let got = every_path(
-        |_| vec![true.to_data(), false.to_data()],
-        || {
-            start(|host| async move {
-                let cx = Cx(host.outside::<Coin>(), End);
-                let a = flip_coin(&cx).await;
-                let b = flip_coin(&cx).await;
-                (a, b)
-            })
-        },
-    );
-    assert_eq!(got, Ok(vec![(true, true), (true, false), (false, true), (false, false)]));
 }
 
 #[test]

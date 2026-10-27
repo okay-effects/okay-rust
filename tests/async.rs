@@ -113,20 +113,6 @@ fn two_programs_at_once() {
     assert!(took < Duration::from_millis(280), "not at once: {took:?}");
 }
 
-/// "the replay over an answer waited for: asked once, told again to every path"
-#[test]
-fn the_replay_over_an_answer_waited_for() {
-    let cx = Cx(Network::new(), End);
-    let r = block_on(all(&cx, async |cx| {
-        let v = fetch(cx, "k".into(), 10).await;
-        let x = among(cx, &[1, 2, 3]).await;
-        format!("{v}{x}")
-    }));
-    assert_eq!(r, vec!["<k>1", "<k>2", "<k>3"]);
-    assert_eq!(cx.0.fetched.get(), 1);
-}
-
-/// "a watch sees an answer waited for when it comes"
 #[test]
 fn a_watch_sees_an_answer_waited_for() {
     struct Lines(RefCell<Vec<String>>);

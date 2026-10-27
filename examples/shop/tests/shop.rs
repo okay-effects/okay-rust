@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use okay::host::{
-    Answerer, Asked, Computation, Entry, Routes, Step, drive, every_path, only, record, remote, replay, start, with,
+    Answerer, Asked, Computation, Entry, Routes, Step, drive, only, record, remote, replay, start, with,
 };
 use okay::typed::*;
 use okay::{Data, IsData};
@@ -204,24 +204,6 @@ fn every_operation_through_the_same_middleware() {
     );
     // a run that does something else is caught at the first difference
     assert!(drive(handed_out("bob", "book", 3000), replay(bob)).unwrap_err().contains("diverged at 1"));
-}
-
-#[test]
-fn every_path_of_a_checkout() {
-    let got = every_path(
-        |a| match a.name() {
-            "reserve" => vec![true.to_data(), false.to_data()],
-            "charge" => vec![
-                Receipt { paid: true, detail: "ch".into() }.to_data(),
-                Receipt { paid: false, detail: "declined".into() }.to_data(),
-            ],
-            _ => vec![Data::Null],
-        },
-        || handed_out("bob", "book", 2000),
-    )
-    .unwrap();
-    let details: Vec<String> = got.into_iter().map(|r| r.detail).collect();
-    assert_eq!(details, vec!["ch", "declined", "book: out of stock"]);
 }
 
 #[test]

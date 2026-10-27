@@ -89,15 +89,6 @@ fn guards_nested_unwound_innermost_first_a_finalizers_panic_replaces_the_error()
     assert_eq!(*log.borrow(), vec!["inner", "outer"]);
 }
 
-#[test]
-fn a_finalizer_under_a_choice_runs_once_a_path() {
-    let log: Log = Rc::default();
-    let cx = Cx(Told(log.clone()), End);
-    let got = run(all(&cx, async |cx| ensure(async { flip(cx).await }, || tell(cx, "fin".to_string())).await));
-    assert_eq!(got, Ok(vec![true, false]));
-    assert_eq!(*log.borrow(), vec!["fin", "fin"]);
-}
-
 // a step failed, cancelled — the finalizers in the program run
 
 #[test]

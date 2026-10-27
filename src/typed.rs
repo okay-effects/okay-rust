@@ -1,9 +1,9 @@
 //! ONE API, COMPILED BY THE HANDLER'S TYPE: a program written with `eff! { … }` is an `async` block — a state
 //! machine the compiler builds, generic over its context `cx`, the handlers in force. Monomorphized for the handlers it
 //! runs under: an operation of a handler answering in place is `Ready` at once — inlined, a call of the handler; one
-//! dropping the rest ends the block (`either`); one taking the rest once suspends it — the state machine itself the
-//! `k`, no node on the heap (`generate`); one taking it many times runs it again for each path, its past told it
-//! again (`all`, `first`: replay). An effect's handler under an `Interceptor` (`Audited::new(handler, interceptor)`):
+//! dropping the rest ends the block (`either`); one taking the rest suspends it — the state machine itself the `k`,
+//! resumed ONCE, no node on the heap (`generate`, a host). The rest taken many times is the machine's (`okay-machine`:
+//! the rest as data). An effect's handler under an `Interceptor` (`Audited::new(handler, interceptor)`):
 //! each operation passed on, changed, refused — a sensitive effect is in a context only so; every operation of every
 //! effect seen by a `Watch` under `observe`.
 //!
@@ -118,10 +118,9 @@ use std::pin::{pin, Pin};
 use std::rc::Rc;
 use std::task::{Context, Poll, Waker};
 
-use crate::eff::{short, Answer, Loop, Never, Reply};
+use crate::eff::{short, Answer, Loop, Reply};
 use crate::audit::Audit;
-use crate::effects::{Choose, Reader, State, Throws, Writer};
-use crate::val::Val;
+use crate::effects::{Reader, State, Throws, Writer};
 use crate::row::{Effect, Here, Plain, There};
 
 // HANDLERS
@@ -316,7 +315,7 @@ pub struct Cx<H, R>(pub H, pub R);
 pub struct End;
 
 /// `E` HANDLED IN THE CONTEXT `Self`, at `Ix` — found by the compiler, as `Member`: an operation given to its handler
-/// — on the way through each layer between (a replay, an observer)
+/// — on the way through each layer between (an observer)
 #[diagnostic::on_unimplemented(
     message = "no handler of `{E}` in the context `{Self}`",
     note = "put a handler of `{E}` in the context; a sensitive effect's only under an interceptor of it: `Audited::new(handler, interceptor)`"
@@ -717,184 +716,6 @@ where
         }
     })
     .await
-}
-
-// TAKING THE REST MANY TIMES: by replay — the body run again for each path, its past told it again
-
-/// what a path was told, in order: a choice (its index, `among` alternatives), or an answer from further out (`among`
-/// 0)
-struct Told {
-    val: Val,
-    among: usize,
-}
-
-/// the layer `all` and `first` put in the context: the choices of the path now, and the answers from further out told
-/// before the last of them — told again, not asked again, when the body runs again (Koppel et al., "Capturing the
-/// future by replaying the past", ICFP 2018)
-pub struct Paths<'c, C> {
-    told: RefCell<Vec<Told>>,
-    at: Cell<usize>,
-    failed: Cell<bool>,
-    outer: &'c C,
-}
-
-impl<'c, C> Paths<'c, C> {
-    fn new(outer: &'c C) -> Self {
-        Paths { told: RefCell::new(Vec::new()), at: Cell::new(0), failed: Cell::new(false), outer }
-    }
-
-    /// the value told here before, if the body is replaying its past
-    #[inline]
-    fn replayed<T: Clone + 'static>(&self) -> Option<T> {
-        let at = self.at.get();
-        let told = self.told.borrow();
-        let t = told.get(at)?;
-        self.at.set(at + 1);
-        Some(t.val.peek::<T>().cloned().unwrap_or_else(|| not_replayed()))
-    }
-
-    #[inline]
-    fn tell<T: Clone + 'static>(&self, t: &T, among: usize) {
-        self.told.borrow_mut().push(Told { val: Val::new(t.clone()), among });
-        self.at.set(self.at.get() + 1);
-    }
-
-    /// the next path: the last choice with an alternative left moved to it, all told after it forgotten; none left —
-    /// false
-    fn next(&self) -> bool {
-        let mut told = self.told.borrow_mut();
-        while let Some(t) = told.pop() {
-            if t.among > 0 {
-                let i = t.val.take::<usize>() + 1;
-                if i < t.among {
-                    told.push(Told { val: Val::new(i), among: t.among });
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
-    /// the body run along the path told: its value, or none — the path failed
-    async fn path<A>(&self, body: &impl AsyncFn(&Self) -> A) -> Option<A> {
-        self.at.set(0);
-        self.failed.set(false);
-        let mut fut = pin!(body(self));
-        std::future::poll_fn(|c| match fut.as_mut().poll(c) {
-            Poll::Ready(a) => Poll::Ready(Some(a)),
-            Poll::Pending if self.failed.get() => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
-        })
-        .await
-    }
-}
-
-#[cold]
-fn not_replayed() -> ! {
-    panic!("okay: the body did not replay its past — it decides by something not an effect (a cell, the time)")
-}
-
-impl<C> Has<Choose, Here> for Paths<'_, C> {
-    #[inline]
-    fn perform<T: Clone + Debug + 'static>(&self, op: Choose) -> Got<'_, T> {
-        match op {
-            Choose::Among(n, r) => {
-                let i = match self.replayed::<usize>() {
-                    Some(i) => i,
-                    None if n == 0 => {
-                        self.failed.set(true);
-                        return Got::Taken;
-                    }
-                    None => {
-                        self.tell(&0usize, n);
-                        0
-                    }
-                };
-                Got::Now(r.give(i).0.take::<T>())
-            }
-            Choose::Fail(_) => {
-                self.failed.set(true);
-                Got::Taken
-            }
-        }
-    }
-    fn resume<T: Clone + Debug + 'static>(&self) -> Option<T> {
-        None
-    }
-}
-
-impl<E: Effect, C: Has<E, Ix>, Ix> Has<E, There<Ix>> for Paths<'_, C> {
-    #[inline]
-    fn perform<T: Clone + Debug + 'static>(&self, op: E) -> Got<'_, T> {
-        if let Some(t) = self.replayed::<T>() {
-            return Got::Now(t);
-        }
-        match self.outer.perform::<T>(op) {
-            Got::Now(t) => {
-                self.tell(&t, 0);
-                Got::Now(t)
-            }
-            Got::Taken => Got::Taken,
-            Got::Wait(f) => Got::Wait(Box::pin(async move {
-                let t = f.await;
-                self.tell(&t, 0);
-                t
-            })),
-        }
-    }
-    #[inline]
-    fn resume<T: Clone + Debug + 'static>(&self) -> Option<T> {
-        let t = self.outer.resume::<T>()?;
-        self.tell(&t, 0);
-        Some(t)
-    }
-}
-
-/// one of the values, each in turn
-pub async fn among<A: Clone, C: Has<Choose, I>, I>(cx: &C, xs: &[A]) -> A {
-    let i: usize = perform(cx, |r| Choose::Among(xs.len(), r)).await;
-    xs[i].clone()
-}
-
-/// true, then false
-pub async fn flip<C: Has<Choose, I>, I>(cx: &C) -> bool {
-    let i: usize = perform(cx, |r| Choose::Among(2, r)).await;
-    i == 0
-}
-
-/// no value: this path dropped
-pub async fn fail<A, C: Has<Choose, I>, I>(cx: &C) -> A {
-    let never: Never = perform(cx, Choose::Fail).await;
-    match never {}
-}
-
-/// every value of the body, one per path, in order — the body run again for each, its past told it again: the
-/// choices made, the answers from further out (each asked once: a state further out threaded through the paths in
-/// order, as the machine's `all` under it). So the body decides by its effects only, and is an `AsyncFn`
-pub async fn all<'c, A, C>(cx: &'c C, body: impl AsyncFn(&Paths<'c, C>) -> A) -> Vec<A> {
-    let paths = Paths::new(cx);
-    let mut out = Vec::new();
-    loop {
-        if let Some(a) = paths.path(&body).await {
-            out.push(a);
-        }
-        if !paths.next() {
-            return out;
-        }
-    }
-}
-
-/// the value of the first path not failing, the rest not run
-pub async fn first<'c, A, C>(cx: &'c C, body: impl AsyncFn(&Paths<'c, C>) -> A) -> Option<A> {
-    let paths = Paths::new(cx);
-    loop {
-        if let Some(a) = paths.path(&body).await {
-            return Some(a);
-        }
-        if !paths.next() {
-            return None;
-        }
-    }
 }
 
 // RECURSION
