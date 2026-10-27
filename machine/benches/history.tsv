@@ -92,3 +92,36 @@ date	sha	arm	host_load	lane	us_per_run	note
 2026-10-27	ea0c338+host	after	11-27	H:hosted	31.324	the waker made once, Asked's name and record made only when asked for, Asked behind an Rc: -75%
 2026-10-27	ea0c338	before	11-27	H:driven	135.204	the same answered as data through a route (drive)
 2026-10-27	ea0c338+host	after	11-27	H:driven	59.188	-56%
+2026-10-27	b516a96	all lanes	1.5-2.6	pure	7.815	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	answered	8.803	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	general	37.135	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	forwarded	9.018	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	forwarded16	14.305	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	forwardedK	39.160	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	forwardedK16	81.677	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	reads	9.573	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	writer	9.917	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	stateCell	33.389	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	state	40.258	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	stateDeep	40.031	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	leftMaps	21.182	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	rightMaps	27.330	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	throwing	95.225	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	throwingK	123.254	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	choose	103.419	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	T:answered	0.241	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	T:reads	0.273	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	T:writer	1.078	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	T:state	1.779	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	T:stateDeep	0.017	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	T:stateOpaque	1.786	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	T:readsOpaque	0.276	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	T:throwing	7.837	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	T:generate	2.227	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	T:intercepted	0.264	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	T:observed	11.130	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	T:dyn0	1.009	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	T:dyn1	2.506	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	T:dyn4	5.487	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	H:hosted	26.062	one run, quiet machine, after the split
+2026-10-27	b516a96	all lanes	1.5-2.6	H:driven	39.681	one run, quiet machine, after the split
