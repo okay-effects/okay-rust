@@ -88,3 +88,7 @@ date	sha	arm	host_load	lane	us_per_run	note
 2026-10-23	0568116+e2	e2	5.4-33	answered	9.664	vs 9.965
 2026-10-23	0568116+e2	e2	5.4-33	pure	9.607	vs 8.696: +10% in every round (no op in it: layout)
 2026-10-23	0568116+e2	e2	5.4-33	rightMaps	41.217	noise: a round at 225 under a load spike (33); the E2+E3 A/B had it at 0.99
+2026-10-27	ea0c338	before	11-27	H:hosted	127.570	a program handed out, 1000 ops answered typed (resume); new lane
+2026-10-27	ea0c338+host	after	11-27	H:hosted	31.324	the waker made once, Asked's name and record made only when asked for, Asked behind an Rc: -75%
+2026-10-27	ea0c338	before	11-27	H:driven	135.204	the same answered as data through a route (drive)
+2026-10-27	ea0c338+host	after	11-27	H:driven	59.188	-56%

@@ -385,6 +385,44 @@ mod typed {
         let c = With::new(b.cx(), Collect::<String>::new());
         run(is_even(&c.cx(), black_box(N))).unwrap_or(false)
     }
+    okay::effect! { pub enum Hop: Plain, wire { Hop(i: i64) -> i64 = hop; } }
+    /// a program handed out: each of its 1000 operations stops it, the host answers it typed (`resume`)
+    pub fn hosted() -> i64 {
+        let mut c = okay::host::start(|h| async move {
+            let cx = Cx(h.outside::<Hop>(), End);
+            let mut s = 0;
+            for i in 0..N {
+                s += hop(&cx, i).await;
+            }
+            s
+        });
+        let mut st = c.step();
+        loop {
+            match st {
+                okay::host::Step::Yielded(a) => {
+                    let Hop::Hop(i, _) = a.get::<Hop>().unwrap();
+                    st = c.resume(*i);
+                }
+                okay::host::Step::Done(s) => return s,
+                _ => return -1,
+            }
+        }
+    }
+    /// the same, answered as data through a route (`drive`): each operation a record out, a plain value in
+    pub fn driven() -> i64 {
+        let c = okay::host::start(|h| async move {
+            let cx = Cx(h.outside::<Hop>(), End);
+            let mut s = 0;
+            for i in 0..N {
+                s += hop(&cx, i).await;
+            }
+            s
+        });
+        let routes = okay::host::Routes::new().on::<Hop>(|op| match op {
+            Hop::Hop(i, r) => Ok(r.give(i)),
+        });
+        okay::host::drive(c, routes.answerer()).unwrap_or(-1)
+    }
     pub fn intercepted() -> bool { run(is_even(&Cx(Audited::new(Ticking, Passing), End), black_box(N))).unwrap_or(false) }
 
     /// a watch seeing every operation, its effect named, keeping none: `answered` under it
@@ -520,6 +558,8 @@ fn main() {
         ("T:dyn1", Box::new(|| typed::dyn1() as u64)),
         ("T:dyn4", Box::new(|| typed::dyn4() as u64)),
         ("T:dynCx", Box::new(|| typed::dyn_cx() as u64)),
+        ("H:hosted", Box::new(|| typed::hosted() as u64)),
+        ("H:driven", Box::new(|| typed::driven() as u64)),
         ("T:dynCx4", Box::new(|| typed::dyn_cx4() as u64)),
     ];
     // each lane's answer, the Scala lanes' own
@@ -527,6 +567,7 @@ fn main() {
     assert_eq!((reads(), writer(), state_cell(), state(), state_deep()), (N, N as usize, N, N, N));
     assert_eq!((left_maps(), right_maps(), throwing(), throwing_k(), choose()), (N, N, 2 * N, 2 * N, N as usize));
     assert!(typed::answered() && typed::intercepted() && typed::observed());
+    assert_eq!((typed::hosted(), typed::driven()), (N * (N - 1) / 2, N * (N - 1) / 2));
     assert!(typed::dyn0() && typed::dyn1() && typed::dyn4() && typed::dyn_cx() && typed::dyn_cx4());
     assert_eq!((typed::reads(), typed::writer(), typed::state(), typed::state_deep(), typed::throwing(), typed::generate_()),
         (N, N as usize, N, N, 2 * N, N * (N - 1) / 2));

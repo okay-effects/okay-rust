@@ -23,7 +23,7 @@ run(checkout(&cx, "bob", "book", 2000));
 | `Audited::new(h, interceptor)` | control and audit: each operation passed on, changed, answered, refused | 0.28 |
 | `Policies<E>` under `Audited` | an interceptor's rules set at run time (a configuration, a tenant) | 2.6, ~1 ns a rule |
 | `observe(cx, watch, …)` | every operation of every effect seen, let through or refused | 12 |
-| `okay::host` (`host.outside::<E>()`) | the program HANDED OUT: stepped by a host (resume, fail, cancel), middleware, a record and its replay, okay's wire | — |
+| `okay::host` (`host.outside::<E>()`) | the program HANDED OUT: stepped by a host (resume, fail, cancel), middleware, a record and its replay, okay's wire | 31 a step answered typed, 59 through a route as data |
 | `okay::dynamic::Dyn` | handlers nested at run time, to any depth (scripts, okay-kernel's TCK) | 2.5 a layer |
 | `all`, `first` | the rest taken many times, by replay | a path's prefix answered again |
 

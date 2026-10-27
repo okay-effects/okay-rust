@@ -87,13 +87,15 @@ pub(crate) fn out() -> bool {
     OUT.with(|o| o.get())
 }
 
-/// AN OPERATION THE PROGRAM ASKS ITS HOST: typed (`get`), or as data (`name`, `record`)
+/// AN OPERATION THE PROGRAM ASKS ITS HOST: typed (`get`), or as data (`name`, `record`) — made only when asked for
 #[derive(Clone)]
-pub struct Asked {
-    op: Rc<dyn Any>,
+pub struct Asked(Rc<AskedOp>);
+
+struct AskedOp {
+    op: Box<dyn Any>,
     effect: &'static str,
-    name: String,
-    record: Data,
+    wire: fn(&dyn Any) -> (String, Data),
+    data: std::cell::OnceCell<(String, Data)>,
     decode: fn(&dyn Any, &Data) -> Result<Answer, String>,
     out: AnswerOut,
 }
@@ -102,37 +104,50 @@ fn decode<E: Remote>(op: &dyn Any, d: &Data) -> Result<Answer, String> {
     op.downcast_ref::<E>().expect("an Asked carries its effect's operation").answer(d)
 }
 
+fn wire<E: Remote>(op: &dyn Any) -> (String, Data) {
+    op.downcast_ref::<E>().expect("an Asked carries its effect's operation").to_wire()
+}
+
 impl Asked {
     fn of<E: Remote>(op: E) -> Asked {
-        let (name, record) = op.to_wire();
         let out = op.out();
-        Asked { op: Rc::new(op), effect: std::any::type_name::<E>(), name, record, decode: decode::<E>, out }
+        Asked(Rc::new(AskedOp {
+            op: Box::new(op),
+            effect: std::any::type_name::<E>(),
+            wire: wire::<E>,
+            data: std::cell::OnceCell::new(),
+            decode: decode::<E>,
+            out,
+        }))
+    }
+    fn data(&self) -> &(String, Data) {
+        self.0.data.get_or_init(|| (self.0.wire)(&*self.0.op))
     }
     /// the operation, if it is one of `E`'s
     pub fn get<E: 'static>(&self) -> Option<&E> {
-        self.op.downcast_ref::<E>()
+        self.0.op.downcast_ref::<E>()
     }
     /// its name on the wire: its function's (`ask_n`)
     pub fn name(&self) -> &str {
-        &self.name
+        &self.data().0
     }
     /// its arguments, a record (keys in lowerCamel)
     pub fn record(&self) -> &Data {
-        &self.record
+        &self.data().1
     }
     /// its effect's type
     pub fn effect(&self) -> &'static str {
-        self.effect
+        self.0.effect
     }
     /// an answer given by a typed handler (`r.give(v)`), as the plain value it is on the wire
     pub fn out(&self, a: Answer) -> Data {
-        (self.out)(a)
+        (self.0.out)(a)
     }
 }
 
 impl Debug for Asked {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} {:?}", self.name, self.record)
+        write!(f, "{} {:?}", self.name(), self.record())
     }
 }
 
@@ -194,6 +209,7 @@ impl std::task::Wake for Unpark {
 /// A PROGRAM HANDED OUT, run one step at a time
 pub struct Computation<'a, A> {
     slot: Rc<Slot>,
+    waker: Waker,
     mask: Rc<Mask>,
     fut: Option<Pin<Box<dyn Future<Output = A> + 'a>>>,
     asked: Option<Asked>,
@@ -208,7 +224,13 @@ where
 {
     let slot = Rc::new(Slot::default());
     let fut: Pin<Box<dyn Future<Output = A> + 'a>> = Box::pin(body(Host(slot.clone())));
-    Computation { slot, mask: Rc::default(), fut: Some(fut), asked: None }
+    Computation {
+        slot,
+        waker: Waker::from(Arc::new(Unpark(std::thread::current()))),
+        mask: Rc::default(),
+        fut: Some(fut),
+        asked: None,
+    }
 }
 
 pub(crate) fn message(p: &(dyn Any + Send)) -> String {
@@ -223,8 +245,7 @@ impl<A> Computation<'_, A> {
     /// thread until it wakes
     pub fn step(&mut self) -> Step<A> {
         let Some(fut) = self.fut.as_mut() else { panic!("okay: a finished computation stepped again") };
-        let waker = Waker::from(Arc::new(Unpark(std::thread::current())));
-        let mut cx = Context::from_waker(&waker);
+        let mut cx = Context::from_waker(&self.waker);
         let before = OUT.with(|o| o.replace(false));
         let outer = MASK.with(|m| m.replace(Some(self.mask.clone())));
         let s = loop {
@@ -256,7 +277,7 @@ impl<A> Computation<'_, A> {
     /// the operation answered with a plain value, decoded into what it answers
     pub fn resume_data(&mut self, d: &Data) -> Step<A> {
         let a = self.asked.as_ref().expect("okay: resume_data with no operation asked");
-        match (a.decode)(&*a.op, d) {
+        match (a.0.decode)(&*a.0.op, d) {
             Ok(v) => self.answer(Ok(v)),
             Err(why) => self.fail(format!("okay: the answer did not decode: {why}")),
         }
