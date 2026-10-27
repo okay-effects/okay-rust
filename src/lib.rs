@@ -56,7 +56,6 @@ mod step;
 mod val;
 
 pub mod audit;
-pub mod direct;
 pub mod typed;
 pub mod host;
 pub mod dynamic;

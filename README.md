@@ -1,27 +1,58 @@
 # okay-rust
 
-[okay](https://github.com/okay-effects/okay)'s algebraic effects in Rust, no dependencies, two crates:
+[okay](https://github.com/okay-effects/okay)'s algebraic effects in Rust, one crate (`okay`), no dependencies (the
+allocator optional: `--features mimalloc`).
 
-| crate | what |
-|---|---|
-| **`okay`** (the root, `src/`) | okay-core's kernel (`okay.one`) ported: a program of effects as DATA, its effects a ROW of types, handlers as values, the rest `k` resumed any number of times, INTERCEPTORS for control and audit; a program STEPPED by a host (okay-kernel's protocol) and over okay's WIRE — its `k` resumed by okay's Choice across processes; GUARDS (`ensure`, `recover`, `uncancelable`); delimited CONTROL with answer-type modification (`Cont`, `$`, `shift0`, `PState`); one API compiled by the handlers' types (`okay::typed`, async); direct style passing effects down (`okay::direct`). Checked by okay-core's own suites, a reference interpreter on random programs, okay-kernel's TCK digest; measured against Scala. |
-| **`okay-effects`** (`effects/`) | SUPERSEDED by `okay::typed` + `okay::host` (2026-10-23; kept for existing users, not developed): effects in plain `async` Rust with capabilities, the kernel's protocol, middleware, every path, branches, streams, the wire — each now on the one API (below: [Handed out to a host, branches, streams](#handed-out-to-a-host-branches-streams)). Guide: [docs/guide.md](docs/guide.md). |
+ONE API: a program is written once — an `async` function over a context (`needs!`, `eff!`); what answers its effects
+is the CONTEXT it is given, never the program. Handlers are values; INTERCEPTORS give control and audit — a sensitive
+effect reaches a program only under its audit, the types refusing anything else.
 
-`examples/shop`: the shop of okay's examples on the one API (`okay::typed`, `okay::host`) — one `needs!` checkout over
-its effects; a `Db` effect under the inventory, payments (sensitive) over HTTP under an interceptor, a limit ending
-the checkout, production and test assemblies, the same checkout handed out to a host: a manager, middleware, a
-recording and its replay, every path, the wire. `examples/okayhost/TestOkayRustWire.scala`: the same shop under Scala handlers in okay, and a Rust handler
-answering okay, run against okay's JVM host.
+```rust
+okay::effect! { pub enum Payments: Sensitive, wire { Charge(user: String, cents: i64) -> Receipt = charge; } }
+
+okay::needs! {
+    pub async fn checkout(cx: [Inventory, Payments, Notify], user: &str, item: &str, cents: i64) -> Receipt { … }
+}
+let cx = Cx(OverDb::new(&db), Cx(Audited::new(Stripe::new(&http), Limit(1000)), Cx(Mailbox(sent), End)));
+run(checkout(&cx, "bob", "book", 2000));
+```
+
+| the context | what it gives | µs per 1000 operations |
+|---|---|---|
+| `Cx(h, …)` (`okay::typed`) | handlers known at compile time: monomorphized, inlined | 0.28 (Scala 5.6) |
+| `Audited::new(h, interceptor)` | control and audit: each operation passed on, changed, answered, refused | 0.28 |
+| `Policies<E>` under `Audited` | an interceptor's rules set at run time (a configuration, a tenant) | 2.6, ~1 ns a rule |
+| `observe(cx, watch, …)` | every operation of every effect seen, let through or refused | 12 |
+| `okay::host` (`host.outside::<E>()`) | the program HANDED OUT: stepped by a host (resume, fail, cancel), middleware, a record and its replay, okay's wire | — |
+| `okay::dynamic::Dyn` | handlers nested at run time, to any depth (scripts, okay-kernel's TCK) | 2.5 a layer |
+| `all`, `first` | the rest taken many times, by replay | a path's prefix answered again |
+
+And in it: `either`/`raise`, `generate`, `stream` (an `Iterator`), branches on one thread (`join`, `both`, `race`),
+guards (`ensure`, `recover`, `uncancelable`), effects waiting on the world (`block_on`), a state whose type the steps
+move (by ownership), `tail_rec`. The one API: [One API](#one-api-compiled-by-the-handlers-type-okaytyped) and
+[Handed out to a host, branches, streams](#handed-out-to-a-host-branches-streams); the plan it follows:
+[specs/one-api.md](specs/one-api.md).
+
+THE SPECIFICATION is okay-core's kernel ported as a machine (`Eff`, a program as data, below): okay-core's suites, a
+reference interpreter on random programs, okay-kernel's TCK digest — the one API checked against it (the TCK's
+thousand programs on `okay::dynamic` give the machine's digest). The machine is also the backend of what an `async`
+body cannot be: answer-type modification (`Cont`, `$`, `shift0`, `PState`).
+
+`examples/shop`: the shop of okay's examples on the one API — one checkout, in process under production and test
+handlers, and handed out: a manager, middleware, a recording and its replay, every path, the wire.
+`examples/okayhost/TestOkayRustWire.scala`: the same shop under Scala handlers in okay, run against okay's JVM host.
 
 ```
 cargo test --workspace
 ```
 
-This repository was okay-rs (github.com/okay-effects/okay-rs, its history kept here) and okay-effects, together.
+This repository was okay-rs (github.com/okay-effects/okay-rs, its history kept here). okay-effects (capabilities on
+async/await) and `okay::direct` (effects passed down) were here until 2026-10-27; the one API took over each part of
+them (git history keeps them).
 
 ---
 
-# The kernel: `okay`
+# The specification: the machine (`Eff`)
 
 okay-core's kernel (`okay.one`) in Rust: a program of effects is DATA (`Eff<R, A>`, a tree of nodes), its effects a
 ROW of types, its handlers VALUES of three forms not tied to it, the rest `k` data too — resumed any number of times,
@@ -473,7 +504,7 @@ okay::effect! {
 ### Handed out to a host, branches, streams
 
 ONE API (`specs/one-api.md`): a program is written once, as `eff!`/`needs!` over a context; what answers its effects
-is the context it is given. What okay-effects did with capabilities, the one API does with contexts:
+is the context it is given. What capabilities did (okay-effects, now gone), the one API does with contexts:
 
 - **A capability is a context**: the one a program passes picks the handler — two instances of one effect are two
   contexts (or one over the other, the index written: `ask_i::<_, Here>(&nested)`); a context cannot outlive its
@@ -523,54 +554,6 @@ is the context it is given. What okay-effects did with capabilities, the one API
 
 The shop (`examples/shop`) is the whole of it: one checkout, in process under production and test handlers, and
 handed out.
-
-## Level 1: effects passed down, direct style
-
-> SUPERSEDED (2026-10-23) by `okay::typed`, the one API: the same evidence passing, and the rest taken too; as
-> fast or faster. Kept, not developed.
-
-The principled answer to the speed of level 2 (below): most effects — a reader, a state, a writer, a log, an audit —
-answer and go on, they never need `k`; for them a program as data is pure cost. `okay::direct` (a prototype) passes
-them DOWN as parameters, as Koka and Effekt do (evidence passing): an effect is a trait, its handler a value, a
-program a generic function whose signature is its row, an operation a call of the handler's method — monomorphized,
-inlined, no node, no allocation. The effects that take the rest (a choice resumed twice, a generator, async) stay on
-the machine, level 2.
-
-```rust
-use okay::direct::*;
-
-fn counting(st: &mut impl State<i64>, log: &mut impl Writer<String>, n: i64) -> i64 {
-    for _ in 0..n { let x = st.get(); st.put(x + 1); }
-    log.tell(format!("counted {n}"));
-    st.get()
-}
-let (mut st, mut log) = (Cell(0), Log::new());
-assert_eq!(counting(&mut st, &mut log, 1000), 1000);
-```
-
-- an interceptor is a wrapper of a handler (`InterceptWriter`);
-- a SENSITIVE effect's trait asks `AuditedOnly` (`pub trait Pay: AuditedOnly`), sealed — implemented by okay's
-  `Audited` and `Observed` alone: a bank's handler reaches a program only through `audit(&mut bank, policy)` or
-  `observe(&mut bank, &observer)`; given bare, "`MyBank` is not under an audit";
-- an observer (`Observed`, one `Trail` shared by many handlers) tells every operation and its answer;
-- an error is `Result` and `?`: in direct style an abort costs nothing.
-
-`tests/direct.rs`: tests/intercept.rs's programs — the payments audit (limit, normalized account, masked trail), a
-plain intercept, the observer of a reader, a state and payments — the same trails.
-
-The same lanes, µs per 1000 operations:
-
-| lane | Scala (okay-core) | level 2 (the machine) | level 1, inlined | level 1, the handler opaque (`dyn`, a call each) |
-|---|---|---|---|---|
-| `answered` | 5.58 | 10.8 | 2.45 (a `black_box` each step) | — |
-| `reads` | 3.15 | 10.2 | 0.017 (folded by LLVM) | 0.70 |
-| `writer` | 9.45 | 11.5 | 0.85 | — |
-| `state` / `stateDeep` | 12.47 / 12.02 | 42.9 / 43.1 | 0.017 (folded) | 1.21 (2000 calls) |
-
-Inlined, LLVM sees the loop through the handler and folds it: the effect costs nothing. Behind `dyn`, each operation a
-real call, still 10× faster than the JVM and 35× than the machine. Open: the bridge — a level-1 program calling an
-effect of level 2 (it cannot capture `k` itself), and an `effect!` macro writing an effect's trait, its audited and
-observed wrappers.
 
 ## Speed
 
@@ -631,7 +614,7 @@ fast one on its own locals while no guard has been entered in the thread, handin
 | `stateCell` / `leftMaps` / `rightMaps` | 36.22 / 20.75 / 27.32 | 40.88 / 24.04 / 30.17 | +10–16% |
 
 The lanes left slower run code the same as before (the loop's arms the commit before's): what is left is the loop's
-layout, as in step 7 above. The typed form (`T:`) and level 1 (`D:`) unchanged.
+layout, as in step 7 above. The typed form (`T:`) unchanged.
 
 **The allocator (2026-10-23).** `--features mimalloc` makes mimalloc the global allocator of the binary okay is
 linked into (optional; okay has no dependency without it). Allocations of one run (`--features count-allocs`):
@@ -646,7 +629,7 @@ three rounds under JMH's lock, medians (`benches/history.tsv`), µs per run:
 | `general` / `forwardedK` / `forwardedK16` | 43.55 / 46.96 / 88.51 | 40.96 / 43.35 / 80.40 | −6–9% |
 | `leftMaps` / `rightMaps` | 25.11 / 29.79 | 22.51 / 26.55 | −10–11% |
 | `throwing` / `throwingK` / `choose` | 110.17 / 135.02 / 111.22 | 86.77 / 103.17 / 89.54 | −20–24% |
-| `T:throwing` / `T:writer` / `D:writer` | 7.94 / 1.14 / 0.91 | 5.94 / 0.94 / 0.74 | −18–25% |
+| `T:throwing` / `T:writer` | 7.94 / 1.14 | 5.94 / 0.94 | −18–25% |
 
 So the allocator pays where there are several allocations an operation; a state's one does not — its time, and that
 of the lanes that do not allocate, is the loop's own. What is left: the levels and frames of a rest copied when it is

@@ -242,101 +242,6 @@ fn choose() -> usize {
     among::<i64, row![Choose], _>(xs).map(|x| x + 1).handle(all()).run().len()
 }
 
-// LEVEL 1, direct style: the same programs, the effects passed down — an operation a call of the handler's method
-
-mod direct {
-    use std::hint::black_box;
-
-    use okay::direct::*;
-
-    use super::N;
-
-    pub trait Tick {
-        fn tick(&mut self, i: i64) -> i64;
-    }
-    pub struct Ticking;
-    impl Tick for Ticking {
-        #[inline]
-        fn tick(&mut self, i: i64) -> i64 {
-            i
-        }
-    }
-
-    fn is_even(t: &mut impl Tick, i: i64) -> bool {
-        if i == 0 { true } else { black_box(t.tick(i)); is_odd(t, i - 1) }
-    }
-    fn is_odd(t: &mut impl Tick, i: i64) -> bool {
-        if i == 0 { false } else { black_box(t.tick(i)); is_even(t, i - 1) }
-    }
-    pub fn answered() -> bool { is_even(&mut Ticking, black_box(N)) }
-
-    pub fn reads() -> i64 {
-        let mut r = Const(black_box(1i64));
-        let mut acc = 0;
-        for _ in 0..black_box(N) {
-            acc += r.ask();
-        }
-        acc
-    }
-
-    pub fn writer() -> usize {
-        let mut w = Log::new();
-        for i in (1..=black_box(N)).rev() {
-            w.tell(i);
-        }
-        w.0.len()
-    }
-
-    fn counting(st: &mut impl State<i64>, n: i64) -> i64 {
-        for _ in 0..n {
-            let x = st.get();
-            st.put(x + 1);
-        }
-        st.get()
-    }
-    pub fn state() -> i64 { counting(&mut Cell(black_box(0i64)), black_box(N)) }
-
-    fn counting_deep(st: &mut impl State<i64>, _r: &mut impl Reader<i64>, _w: &mut impl Writer<i64>, n: i64) -> i64 {
-        counting(st, n)
-    }
-    pub fn state_deep() -> i64 {
-        counting_deep(&mut Cell(black_box(0i64)), &mut Const(0i64), &mut Log::new(), black_box(N))
-    }
-
-    /// the state behind `dyn`: each operation a call through a table, nothing inlined — the cost of a call
-    #[inline(never)]
-    fn counting_dyn(st: &mut dyn State<i64>, n: i64) -> i64 {
-        for _ in 0..n {
-            let x = st.get();
-            st.put(x + 1);
-        }
-        st.get()
-    }
-    pub fn state_dyn() -> i64 {
-        let mut cell = Cell(black_box(0i64));
-        // the handler opaque: its type unknown to the loop, each operation a call through its table
-        let st: &mut dyn State<i64> = black_box(&mut cell);
-        counting_dyn(st, black_box(N))
-    }
-
-    /// the reader behind `dyn`, opaque: an ask a call
-    #[inline(never)]
-    fn asks_dyn(r: &mut dyn Reader<i64>, n: i64) -> i64 {
-        let mut acc = 0;
-        for _ in 0..n {
-            acc += r.ask();
-        }
-        acc
-    }
-    pub fn reads_dyn() -> i64 {
-        let mut c = Const(black_box(1i64));
-        let r: &mut dyn Reader<i64> = black_box(&mut c);
-        asks_dyn(r, black_box(N))
-    }
-}
-
-// ONE API COMPILED BY THE HANDLER'S TYPE (okay::typed): the same programs, eff! { … }
-
 mod typed {
     use std::cell::RefCell;
     use std::hint::black_box;
@@ -599,13 +504,6 @@ fn main() {
         ("throwing", Box::new(|| throwing() as u64)),
         ("throwingK", Box::new(|| throwing_k() as u64)),
         ("choose", Box::new(|| choose() as u64)),
-        ("D:answered", Box::new(|| direct::answered() as u64)),
-        ("D:reads", Box::new(|| direct::reads() as u64)),
-        ("D:writer", Box::new(|| direct::writer() as u64)),
-        ("D:state", Box::new(|| direct::state() as u64)),
-        ("D:stateDeep", Box::new(|| direct::state_deep() as u64)),
-        ("D:stateDyn", Box::new(|| direct::state_dyn() as u64)),
-        ("D:readsDyn", Box::new(|| direct::reads_dyn() as u64)),
         ("T:answered", Box::new(|| typed::answered() as u64)),
         ("T:reads", Box::new(|| typed::reads() as u64)),
         ("T:writer", Box::new(|| typed::writer() as u64)),
@@ -628,13 +526,11 @@ fn main() {
     assert!(answered() && general() && forwarded() && forwarded16() && forwarded_k() && forwarded_k16());
     assert_eq!((reads(), writer(), state_cell(), state(), state_deep()), (N, N as usize, N, N, N));
     assert_eq!((left_maps(), right_maps(), throwing(), throwing_k(), choose()), (N, N, 2 * N, 2 * N, N as usize));
-    assert!(direct::answered());
     assert!(typed::answered() && typed::intercepted() && typed::observed());
     assert!(typed::dyn0() && typed::dyn1() && typed::dyn4() && typed::dyn_cx() && typed::dyn_cx4());
     assert_eq!((typed::reads(), typed::writer(), typed::state(), typed::state_deep(), typed::throwing(), typed::generate_()),
         (N, N as usize, N, N, 2 * N, N * (N - 1) / 2));
     assert_eq!((typed::state_opaque(), typed::reads_opaque(), typed::choose()), (N, N, N as usize));
-    assert_eq!((direct::reads(), direct::writer(), direct::state(), direct::state_deep(), direct::state_dyn(), direct::reads_dyn()), (N, N as usize, N, N, N, N));
     for (name, f) in &lanes {
         if only.is_empty() || only.iter().any(|o| o == name) {
             lane(name, f.as_ref());

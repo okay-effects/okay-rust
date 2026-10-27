@@ -426,7 +426,7 @@ impl<T> Debug for Reply<T> {
 pub struct Answer(pub(crate) Val);
 
 impl<T> Reply<T> {
-    /// a reply, made by a performer: the machine's `perform`, level 1's operations
+    /// a reply, made by a performer: the machine's `perform`, the one API's operations
     pub(crate) fn new() -> Self {
         Reply(PhantomData)
     }

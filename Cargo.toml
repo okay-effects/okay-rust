@@ -2,7 +2,7 @@
 name = "okay-rust"
 version = "0.1.0"
 edition = "2024"
-description = "okay in Rust: okay-core's kernel (a program of effects as data, rows, handlers not tied to the monad, k as data, interceptors) and okay-effects (capabilities on async/await, the kernel's protocol, middleware, okay's wire)"
+description = "okay in Rust: effects as one API over async/await (okay::typed, okay::host, okay::dynamic) — handlers chosen by the context, interceptors for control and audit; okay-core's kernel as its specification"
 license = "Apache-2.0"
 repository = "https://github.com/okay-effects/okay-rust"
 
@@ -19,7 +19,7 @@ mimalloc = ["dep:mimalloc"]
 count-allocs = []
 
 [workspace]
-members = ["effects", "examples/shop"]
+members = ["examples/shop"]
 
 [[bench]]
 name = "kernel"

@@ -1,8 +1,9 @@
 # okay-rust — notes for agents
 
-Two crates in one workspace: the root `okay` (okay-core's kernel ported — what follows down to "okay-effects") and
-`effects/` (`okay-effects`: capabilities on async/await, okay-kernel's step protocol, middleware, okay's wire), with
-`examples/shop` on the second. `cargo test --workspace` runs both. This repository was okay-rs; its history is here.
+One crate, `okay` (the root), and `examples/shop` in the workspace on the one API (`okay::typed`, `okay::host`);
+`cargo test --workspace` runs both. This repository was okay-rs; its history is here. okay-effects (`effects/`) and
+`okay::direct` were removed 2026-10-27 — the one API took over each part (git history keeps them). THE ONE API is
+the user's API; the machine (`Eff`, below) is its specification and the backend of answer-type modification.
 
 - Rust 2024 (rustc 1.92), no dependencies but the optional `mimalloc` (feature `mimalloc`: the global allocator); `cargo test` runs the unit, integration and doc tests (the doc tests hold
   the `compile_fail` checks: a row not handled has no `run`; an effect not in the row cannot be performed).
@@ -64,7 +65,6 @@ Two crates in one workspace: the root `okay` (okay-core's kernel ported — what
   (finalizer, recover, passing), `Level::Mask` (uncancelable), `Kind::{Raise, Cancel, Leave, Fail, CancelK, Passed}`.
   A state's step that panics loses that state (it was moved out): keep steps total.
 - `okay::wire` (`Remote`, `Remotes`, `program`, `serve`; `effect!`'s `wire` flag) and `okay::data` (`Data`, `IsData`)
-  — okay-effects takes its `Data` from here.
 - Checks beyond the ported suites: `src/reference.rs` (cfg(test): normal forms, random programs of effects and of
   control, the machine as the meaning — run it after any change to the machine), `tests/tck.rs` (okay-kernel's
   digest; the TCK's state a cell, as its `Handlers.state`), A/B the lanes under the lock after machine changes.
@@ -92,23 +92,3 @@ Two crates in one workspace: the root `okay` (okay-core's kernel ported — what
   `With` (a handler; `audited` for a sensitive one), `Shared` (one object for every path, its past replayed — the
   TCK's cell), `either`, `all`, `first`. tests/dynamic.rs, tests/tck_typed.rs (the machine's digest: keep it so).
 - THE ONE API (`specs/one-api.md`): new work goes to `okay::typed`/`okay::host`; the machine is the specification.
-
-## okay-effects (`effects/`) — SUPERSEDED by `okay::typed` + `okay::host` (2026-10-23); kept, not developed
-
-
-- Edition 2021, no dependencies. An operation implements `Op` (`op!` writes it with its form as data, `Operation`:
-  a name in snake_case and a record, fields in lowerCamel — a Scala case class's shape); a handler (`handle`,
-  `answering`) makes a `Cap<O>` and answers its operations by identity; `perform(op).await` puts the operation in the
-  run's mailbox (one in flight per run) and returns `Pending`; the handler polling its body answers it.
-- `Reply::Abort` drops the body (destructors run); `Reply::Raise` and `Computation::fail` are panics at the operation.
-- `start`/`Computation`: the kernel's protocol (`Step::{Done, Yielded(Asked), Failed, Cancelled}`); `drive` with an
-  `Answerer`, `with`/`only`/`Routes`/`record`/`replay`; `every_path` by replay; `wire::{remote, serve}`.
-- Branches (`par.rs`): `all`/`par`/`race` poll their branches round-robin in one run, one mailbox; an operation
-  left in it past the branches locks them to the branch that performed it until answered (one at a time, no
-  lending). A branch's panic drops the others. Not `join!`/`select!`: they don't know the mailbox. `Host::run` for
-  branches in a handed-out program.
-- `stream(producer)` (`stream.rs`): `Cap<Emit<T>>`, pulled as an `Iterator`; dropping it drops the producer.
-- `effects/benches/ops.rs` (harness = false, std only): `cargo bench -p okay-effects` — only okay-effects', not
-  the root's JMH-locked `benches/kernel.rs`; numbers in the guide's "Speed".
-- `examples/okayhost/TestOkayRustWire.scala` is run from an okay scratch worktree (okay-py, a Live test), not here.
-- Keep the guide (`docs/guide.md`) and the README's snippets in step with the tests.
