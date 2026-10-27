@@ -30,9 +30,12 @@ run(checkout(&cx, "bob", "book", 2000));
 | `observe(cx, watch, …)` | every operation of every effect seen, let through or refused | 12 |
 | `okay::host` (`host.outside::<E>()`) | the program HANDED OUT: stepped by a host (resume, fail, cancel), middleware, a record and its replay, okay's wire | 31 a step answered typed, 59 through a route as data |
 
-And in it: `either`/`raise`, `generate`, `stream` (an `Iterator`), branches on one thread (`join`, `both`, `race`),
-guards (`ensure`, `recover`, `uncancelable`), effects waiting on the world (`block_on`), a state whose type the steps
-move (by ownership), `tail_rec`. The one API: [One API](#one-api-compiled-by-the-handlers-type-okaytyped) and
+And in it: `either`/`raise`, `generate`, `stream` (an `Iterator`; `emit_all`, `merge` round robin), branches on one
+thread (`join`, `both`, `race`), guards (`ensure`, `recover`, `uncancelable`), effects waiting on the world
+(`block_on`, any executor), a state whose type the steps move (by ownership), `tail_rec`. The services as effects
+(`okay::services`): `Clock` (virtual — waits at once — or the system's), `Random` (seeded), `Log`, `Env`, `Secrets`
+(SENSITIVE: read only under an audit), `Fresh`, `Store`. Control (`okay::control`): `optional`/`exit`, `retry`,
+`backoff`, `timeout`, `scope` (tasks beside its body, cancelled at its end; resources released, the last first). The one API: [One API](#one-api-compiled-by-the-handlers-type-okaytyped) and
 [Handed out to a host, branches, streams](#handed-out-to-a-host-branches-streams); the plan it follows:
 [specs/one-api.md](specs/one-api.md).
 
@@ -239,6 +242,33 @@ is the context it is given. What capabilities did (okay-effects, now gone), the 
 The shop (`examples/shop`) is the whole of it: one checkout, in process under production and test handlers, and
 handed out.
 
+
+### Services and control
+
+The world a program asks of — the time, randomness, a log, the environment, a store — is effects, so a test answers
+at once what production answers for real: the same program.
+
+```rust
+okay::needs! {
+    async fn roll(cx: [Clock, Random, Log]) -> u64 {
+        let t = now_ms(cx).await;
+        let n = random_below(cx, 6).await + 1;
+        info(cx, format!("rolled {n} at {t}")).await;
+        n
+    }
+}
+let test = Cx(VirtualClock::at(1_000), Cx(SplitMix::seeded(7), Cx(LogCollect::at_least(Level::Info), End)));
+let prod = Cx(SystemClock, Cx(SplitMix::from_time(), Cx(LogTo::new(Level::Info, |_, s| eprintln!("{s}")), End)));
+```
+
+`Secrets` is SENSITIVE: a secret is read only under an audit of it — `Audited::new(env, interceptor)` sees every
+read and may refuse it; a `Secret` prints as `Secret(***)`. `tests/services.rs`.
+
+`backoff(cx, times, first_ms, factor, retry_on, body)` waits on the context's clock between runs — on a virtual one,
+at once; `timeout(cx, ms, body)` races a timer on the system's clock and compares deadlines on a virtual one; a
+`scope(async |s| …)` runs `s.spawn(task)` beside its body (`join`, `cancel`), and at its end — a value, an error raised
+past it, a panic, a host's cancel — cancels the tasks left and releases what it acquired, the last first.
+`tests/control.rs`.
 
 ## Speed
 

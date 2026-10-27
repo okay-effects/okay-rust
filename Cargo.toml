@@ -5,6 +5,10 @@ edition = "2024"
 description = "okay in Rust: effects as one API over async/await (okay::typed, okay::host) — handlers chosen by the context, interceptors for control and audit; its specification the okay-machine crate"
 license = "Apache-2.0"
 repository = "https://github.com/okay-effects/okay-rust"
+readme = "README.md"
+keywords = ["effects", "algebraic-effects", "handlers", "async", "audit"]
+categories = ["rust-patterns", "asynchronous"]
+exclude = ["examples/okayhost", "scripts", "specs"]
 
 [lib]
 name = "okay"

@@ -1113,6 +1113,39 @@ where
     Stream { slot, fut: Some(fut), waker }
 }
 
+/// every value of `xs` emitted, in turn
+pub async fn emit_all<V, C, I>(cx: &C, xs: impl IntoIterator<Item = V>)
+where
+    V: Clone + std::fmt::Debug + 'static,
+    C: Has<Emit<V>, I>,
+{
+    for x in xs {
+        emit(cx, x).await;
+    }
+}
+
+/// two streams' values in turn — ROUND ROBIN, one from each while both go on, then the rest of the longer: no queue,
+/// no thread; each stream run a step per value it gives
+pub fn merge<A: Iterator, B: Iterator<Item = A::Item>>(a: A, b: B) -> Merge<A, B> {
+    Merge { a: a.fuse(), b: b.fuse(), next_a: true }
+}
+
+/// what `merge` gives
+pub struct Merge<A: Iterator, B> {
+    a: std::iter::Fuse<A>,
+    b: std::iter::Fuse<B>,
+    next_a: bool,
+}
+
+impl<A: Iterator, B: Iterator<Item = A::Item>> Iterator for Merge<A, B> {
+    type Item = A::Item;
+    fn next(&mut self) -> Option<A::Item> {
+        let first = if self.next_a { self.a.next() } else { self.b.next() };
+        self.next_a = !self.next_a;
+        first.or_else(|| if self.next_a { self.a.next() } else { self.b.next() })
+    }
+}
+
 impl<V> Iterator for Stream<'_, V> {
     type Item = V;
     fn next(&mut self) -> Option<V> {

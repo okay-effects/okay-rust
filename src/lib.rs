@@ -27,10 +27,12 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 pub mod audit;
+pub mod control;
 pub mod data;
 pub mod effects;
 pub mod guarantees;
 pub mod host;
+pub mod services;
 mod kinds;
 mod reply;
 pub mod typed;
@@ -189,6 +191,7 @@ macro_rules! effect {
             fn from_wire(name: &str, record: &$crate::Data) -> Option<Result<(Self, $crate::wire::AnswerOut), String>> {
                 $(
                     if name == stringify!($f) {
+                        #[allow(clippy::redundant_closure_call)]
                         let made = (|| -> Result<Self, String> {
                             Ok($name::$op($(<$ty as $crate::IsData>::from_data(record.field(&$crate::data::camel(stringify!($arg)))?)?,)* $crate::wire::reply()))
                         })();

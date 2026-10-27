@@ -108,3 +108,11 @@ impl IsData for usize {
         i64::from_data(d).and_then(|n| usize::try_from(n).map_err(|e| e.to_string()))
     }
 }
+
+/// 64 bits as a plain value: an `Int` of the same bits (a random number, a time in milliseconds)
+impl IsData for u64 {
+    fn to_data(&self) -> Data { Data::Int(*self as i64) }
+    fn from_data(d: &Data) -> Result<Self, String> {
+        i64::from_data(d).map(|n| n as u64)
+    }
+}

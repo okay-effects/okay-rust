@@ -90,4 +90,10 @@ Removed 2026-10-27 (the one API took over; git history keeps them): okay-effects
   `recover` (not `host::CancelFired`), `uncancelable` (the computation's `host::Mask`, set thread-locally while it is
   stepped; `Computation::cancel` inside gives the step back). tests/typed_guard.rs. Typestate by ownership:
   tests/typestate.rs, compile_fail in src/guarantees.rs.
+- `okay::services` (Clock virtual/system + `timer`, Random/SplitMix, Log, Env, Secrets — SENSITIVE, Secret prints
+  `***` —, Fresh, Store/InMemory) and `okay::control` (Abort/optional/exit, retry, backoff, timeout — a timer race on
+  the system's clock, deadlines compared on a virtual one —, scope: spawn/join/cancel, acquire/defer released LIFO in
+  Scope's Drop). Streams: `emit_all`, `merge` (round robin). tests/services.rs, tests/control.rs.
+- crates.io: `cargo package -p okay-rust` verifies; okay-machine packages only once okay-rust is published (its
+  dependency carries `version`). Publishing is the user's call (no cargo credentials here).
 - THE ONE API (`specs/one-api.md`): new work goes to `okay::typed`/`okay::host`; the machine is the specification.
