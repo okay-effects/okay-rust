@@ -7,9 +7,7 @@
 #![allow(clippy::type_complexity)]
 
 use std::cell::{Cell, RefCell};
-use std::hint::black_box;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
 
 use okay_machine::effects::{all, among, Choose};
 
@@ -482,6 +480,8 @@ fn lane(name: &str, f: &dyn Fn() -> u64) {
 
 #[cfg(not(feature = "count-allocs"))]
 fn timed(name: &str, f: &dyn Fn() -> u64) {
+    use std::hint::black_box;
+    use std::time::{Duration, Instant};
     let second = Duration::from_secs(1);
     for _ in 0..3 {
         let t = Instant::now();
