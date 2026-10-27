@@ -33,7 +33,7 @@ Tests: `tests/pstate.rs`'s protocol and pipeline, with the compile_fail cases.
 
 ## Steps
 
-0. Baseline: every lane, alternating A/B under JMH's lock, appended to `benches/history.tsv`. DONE 2026-10-23.
+0. Baseline: every lane, alternating A/B under JMH's lock, appended to `machine/benches/history.tsv`. DONE 2026-10-23.
 1. Allocator: `--features mimalloc`; allocations per run per lane (`--features count-allocs`). DONE: −20–25% where
    several allocations an operation (throwing, choose, T:throwing), noise where none (README's Speed).
 2. This spec. DONE.

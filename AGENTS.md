@@ -1,9 +1,13 @@
 # okay-rust — notes for agents
 
-One crate, `okay` (the root), and `examples/shop` in the workspace on the one API (`okay::typed`, `okay::host`);
-`cargo test --workspace` runs both. This repository was okay-rs; its history is here. okay-effects (`effects/`) and
-`okay::direct` were removed 2026-10-27 — the one API took over each part (git history keeps them). THE ONE API is
-the user's API; the machine (`Eff`, below) is its specification and the backend of answer-type modification.
+Two crates. `okay` (the root): THE ONE API — `okay::typed`, `okay::host`, the effects' enums, `Data`, `Remote`,
+`Reply`/`Answer`/`Val`, the macros `effect!`, `needs!`, `eff!` (async), `data!`. `okay-machine` (`machine/`): its
+SPECIFICATION — okay-core's kernel (`Eff`, the machine, rows, `Cont`, the reference interpreter, the TCK), its own
+`effect!` (okay's, plus the `Eff` forms) and `eff! { data; … }`, `Resume` (`r.resume(&k, v)`); it re-exports `typed`,
+`host`, `needs`, `data`; its tests in `machine/tests`, the bench `machine/benches/kernel.rs` (both crates' lanes) with
+`count-allocs`. `examples/shop` on the one API. `cargo test --workspace` runs all. This repository was okay-rs.
+Removed 2026-10-27 (the one API took over; git history keeps them): okay-effects, `okay::direct`, the one API's replay
+(ONE-SHOT by design: the rest taken many times is the machine's) and `okay::dynamic`.
 
 - Rust 2024 (rustc 1.92), no dependencies but the optional `mimalloc` (feature `mimalloc`: the global allocator); `cargo test` runs the unit, integration and doc tests (the doc tests hold
   the `compile_fail` checks: a row not handled has no `run`; an effect not in the row cannot be performed).
@@ -48,10 +52,10 @@ the user's API; the machine (`Eff`, below) is its specification and the backend 
   (`Has::perform` gives `Got::{Now, Taken, Wait}`). Only an effect declared `waits` (`effect!`) has `Waiting`
   operations, which keep that future; `Perform` must keep NO field with a destructor — one costs 2–7× on the `T:`
   lanes (measured: not unwinding, not size; `ManuallyDrop` restores it). `block_on`, `both`; `tests/async.rs`.
-- Benchmarks: `benches/kernel.rs`, okay-core's KernelBenchmark lanes, the same programs and n; run it under JMH's
+- Benchmarks: `machine/benches/kernel.rs` (`cargo bench -p okay-machine`), okay-core's KernelBenchmark lanes, the same programs and n; run it under JMH's
   lock (`scripts/withlock.py`) — other sessions measure on this machine — and compile under it too. A/B two bench
   binaries, alternating: `scripts/bench-ab.sh <binA> <binB> <rounds> [lanes]`; append the medians to
-  `benches/history.tsv` (never rewrite it). `--features count-allocs`: allocations per run per lane. The plan of the
+  `machine/benches/history.tsv` (never rewrite it). `--features count-allocs`: allocations per run per lane. The plan of the
   one API (typed as the API, contexts as backends, the machine as the specification): `specs/one-api.md`.
 - Stage 2 is in (`src/cont.rs`): `Cont<R, I, O, A>`, `Control<T>`/`Delim<T>`/`Reset` in the row, `Nearest` (a shift0
   to the nearest `$`, never past one — `Control` is not an `Effect`, which keeps the impls apart), `Bind` for the four

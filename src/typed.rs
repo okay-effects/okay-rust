@@ -118,10 +118,10 @@ use std::pin::{pin, Pin};
 use std::rc::Rc;
 use std::task::{Context, Poll, Waker};
 
-use crate::eff::{short, Answer, Loop, Reply};
+use crate::reply::{short, Answer, Loop, Reply};
 use crate::audit::Audit;
 use crate::effects::{Reader, State, Throws, Writer};
-use crate::row::{Effect, Here, Plain, There};
+use crate::kinds::{Effect, Here, Plain, There};
 
 // HANDLERS
 
@@ -529,7 +529,7 @@ pub fn tell<W: Clone + std::fmt::Debug + 'static, C: Has<Writer<W>, I>, I>(cx: &
 }
 /// an error raised: the rest dropped by the handler of `Throws<E>`
 pub async fn raise<E: Clone + std::fmt::Debug + 'static, A, C: Has<Throws<E>, I>, I>(cx: &C, e: E) -> A {
-    let never: crate::Never = perform(cx, |r| Throws::Raise(e, r)).await;
+    let never: crate::reply::Never = perform(cx, |r| Throws::Raise(e, r)).await;
     match never {}
 }
 

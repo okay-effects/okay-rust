@@ -1,0 +1,22 @@
+[package]
+name = "okay-machine"
+version = "0.1.0"
+edition = "2024"
+description = "okay's specification in Rust: okay-core's kernel — a program of effects as data, rows, handlers as values, the rest k as data (taken many times), interceptors, guards, answer-type modification; the one API (okay) checked against it"
+license = "Apache-2.0"
+repository = "https://github.com/okay-effects/okay-rust"
+
+[lib]
+name = "okay_machine"
+
+[dependencies]
+okay = { package = "okay-rust", path = ".." }
+
+[features]
+mimalloc = ["okay/mimalloc"]
+# benches only: count the allocations of one run of each lane (the system allocator under a counter)
+count-allocs = []
+
+[[bench]]
+name = "kernel"
+harness = false

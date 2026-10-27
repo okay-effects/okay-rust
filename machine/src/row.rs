@@ -1,0 +1,129 @@
+//! ROWS OF EFFECTS: a list of types, `Cons<E, R>` ending in `Nil` — `row![Reader<i64>, State<i64>]`. An effect's
+//! place in a row found by the compiler (`Member`'s index, `Here` or `There`), as okay-one's `In`; the row without it
+//! (`Rest`) what a handler of it leaves, as okay-one's `Removed`.
+//!
+//! A SENSITIVE effect (`Kind = Sensitive`) is handled only under an audit: an interceptor or an observer turns it into
+//! `Audited<E>` in the row outside it — no program there can perform it, and only `handle_audited` takes it off.
+
+
+use std::marker::PhantomData;
+
+pub use okay::{Effect, Here, Kind, Plain, Sensitive, There};
+
+/// the empty row: a program of no effect, run by `run`
+pub struct Nil;
+
+/// `E` first, then the row `R`
+pub struct Cons<E, R>(PhantomData<fn() -> (E, R)>);
+
+/// THE KIND OF A PLAIN EFFECT: handled by any handler, intercepted by any interceptor — a sensitive one's is not
+#[diagnostic::on_unimplemented(
+    message = "a sensitive effect is handled only under its audit",
+    label = "this effect is sensitive",
+    note = "audit it first (`audit` with an interceptor of it, or `observe`), then handle it with `handle_audited`"
+)]
+pub trait PlainKind {}
+impl PlainKind for Plain {}
+
+/// `E` audited: in the row outside an audit of it — performed by no one there, handled by `handle_audited`
+pub struct Audited<E>(PhantomData<fn() -> E>);
+
+/// `E` IN THE ROW `Self`, at `Ix` — the index found by the compiler, never written; `Rest` the row without it
+#[diagnostic::on_unimplemented(
+    message = "the effect `{E}` is not in the row `{Self}`",
+    label = "no `{E}` in this row",
+    note = "a program performs only the effects of its row; add `{E}` to the row, or handle it before; a sensitive effect outside its audit is `Audited<{E}>`, performed by no one"
+)]
+pub trait Member<E, Ix> {
+    type Rest;
+}
+
+impl<E, R> Member<E, Here> for Cons<E, R> {
+    type Rest = R;
+}
+
+impl<E, F, R, Ix> Member<E, There<Ix>> for Cons<F, R>
+where
+    R: Member<E, Ix>,
+{
+    type Rest = Cons<F, R::Rest>;
+}
+
+/// `E` at `Ix` in `Self` MARKED audited: the row outside an audit of `E`
+#[diagnostic::on_unimplemented(message = "the effect `{E}` is not in the row `{Self}`: nothing to audit")]
+pub trait Mark<E, Ix> {
+    type Out;
+}
+
+impl<E, R> Mark<E, Here> for Cons<E, R> {
+    type Out = Cons<Audited<E>, R>;
+}
+
+impl<E, F, R, Ix> Mark<E, There<Ix>> for Cons<F, R>
+where
+    R: Mark<E, Ix>,
+{
+    type Out = Cons<F, R::Out>;
+}
+
+/// EVERY SENSITIVE EFFECT of `Self` marked audited, the plain ones as they are: the row outside an observer, which
+/// sees them all
+pub trait AuditAll {
+    type Out;
+}
+
+impl AuditAll for Nil {
+    type Out = Nil;
+}
+
+impl<E: Effect, R: AuditAll> AuditAll for Cons<E, R>
+where
+    E::Kind: MarkKind<E>,
+{
+    type Out = Cons<<E::Kind as MarkKind<E>>::Out, R::Out>;
+}
+
+impl<E, R: AuditAll> AuditAll for Cons<Audited<E>, R> {
+    type Out = Cons<Audited<E>, R::Out>;
+}
+
+/// by the kind: a plain effect as it is, a sensitive one audited
+pub trait MarkKind<E> {
+    type Out;
+}
+
+impl<E> MarkKind<E> for Plain {
+    type Out = E;
+}
+
+impl<E> MarkKind<E> for Sensitive {
+    type Out = Audited<E>;
+}
+
+/// A `$` IN THE ROW: delimited control over the row `T` outside it — `Delim<T>` is the row of a program under a `$`
+/// (okay-core's `Control[T] +: T`). Not an effect: no handler takes it, an operation passes it, a shift0 stops at it
+pub struct Control<T>(PhantomData<fn() -> T>);
+
+/// the row under a `$` over `T`
+pub type Delim<T> = Cons<Control<T>, T>;
+
+/// the row under a `$` over no effect
+pub type Reset = Delim<Nil>;
+
+/// THE NEAREST `$` in the row `Self`, over `T`, at `Ix` — past effects, never past another `$`
+#[diagnostic::on_unimplemented(
+    message = "a shift0 only under a `$`: no `$` over `{T}` is the nearest in the row `{Self}`",
+    label = "no `$` here"
+)]
+pub trait Nearest<T, Ix> {}
+
+impl<T> Nearest<T, Here> for Cons<Control<T>, T> {}
+
+impl<E: Effect, R: Nearest<T, Ix>, T, Ix> Nearest<T, There<Ix>> for Cons<E, R> {}
+
+/// `row![A, B, C]`: `Cons<A, Cons<B, Cons<C, Nil>>>`
+#[macro_export]
+macro_rules! row {
+    () => { $crate::Nil };
+    ($e:ty $(, $rest:ty)* $(,)?) => { $crate::Cons<$e, $crate::row![$($rest),*]> };
+}

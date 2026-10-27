@@ -2,7 +2,7 @@
 name = "okay-rust"
 version = "0.1.0"
 edition = "2024"
-description = "okay in Rust: effects as one API over async/await (okay::typed, okay::host, okay::dynamic) — handlers chosen by the context, interceptors for control and audit; okay-core's kernel as its specification"
+description = "okay in Rust: effects as one API over async/await (okay::typed, okay::host) — handlers chosen by the context, interceptors for control and audit; its specification the okay-machine crate"
 license = "Apache-2.0"
 repository = "https://github.com/okay-effects/okay-rust"
 
@@ -15,15 +15,9 @@ mimalloc = { version = "0.1", optional = true, default-features = false }
 
 [features]
 mimalloc = ["dep:mimalloc"]
-# benches only: count the allocations of one run of each lane (the system allocator under a counter)
-count-allocs = []
 
 [workspace]
-members = ["examples/shop"]
-
-[[bench]]
-name = "kernel"
-harness = false
+members = ["machine", "examples/shop"]
 
 [profile.release]
 codegen-units = 1

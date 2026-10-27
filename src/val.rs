@@ -6,7 +6,7 @@ use std::any::{Any, TypeId};
 use std::mem::{align_of, needs_drop, size_of, MaybeUninit};
 
 /// a value on its way, erased
-pub(crate) struct Val(Repr);
+pub struct Val(Repr);
 
 enum Repr {
     Small { ty: TypeId, bits: MaybeUninit<[u64; 2]> },
@@ -20,7 +20,7 @@ const fn small<T>() -> bool {
 
 impl Val {
     #[inline(always)]
-    pub(crate) fn new<T: 'static>(t: T) -> Val {
+    pub fn new<T: 'static>(t: T) -> Val {
         if small::<T>() {
             let mut bits = MaybeUninit::<[u64; 2]>::uninit();
             // SAFETY: `T` fits in 16 bytes aligned to 8 (`small`), and needs no drop: the bits are its owner
@@ -33,7 +33,7 @@ impl Val {
 
     /// the value at its type: the type it was made at — the typed API allows no other
     #[inline(always)]
-    pub(crate) fn take<T: 'static>(self) -> T {
+    pub fn take<T: 'static>(self) -> T {
         match self.0 {
             Repr::Small { ty, bits } if ty == TypeId::of::<T>() => {
                 // SAFETY: made by `new::<T>` (the same `TypeId`), written there whole; read once, `self` consumed
@@ -48,7 +48,7 @@ impl Val {
     }
 
     /// the value seen at its type, not taken
-    pub(crate) fn peek<T: 'static>(&self) -> Option<&T> {
+    pub fn peek<T: 'static>(&self) -> Option<&T> {
         match &self.0 {
             Repr::Small { ty, bits } if *ty == TypeId::of::<T>() => {
                 // SAFETY: as `take`, a shared look

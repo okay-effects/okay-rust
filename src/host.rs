@@ -38,8 +38,8 @@ use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 
 use crate::data::Data;
-use crate::eff::{Answer, Reply};
-use crate::row::Effect;
+use crate::reply::{Answer, Reply};
+use crate::kinds::Effect;
 use crate::typed::{Handles, Step as Handled};
 use crate::wire::{AnswerOut, Remote};
 
