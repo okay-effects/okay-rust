@@ -158,3 +158,6 @@ date	sha	arm	host_load	lane	us_per_run	note
 2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	T:dyn4	5.304	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
 2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	H:hosted	25.978	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
 2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	H:driven	41.870	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e070c9a	REFUTED: a level's frames a persistent Chain in a thread arena (refcounted nodes; a level copied = one hold)	1.5-2.5	general	45.656	vs 38.219 before; 2 alternating rounds under JMH's lock; a frame's push through the thread's arena costs more than a Vec push
+2026-10-28	e070c9a	REFUTED: a level's frames a persistent Chain in a thread arena (refcounted nodes; a level copied = one hold)	1.5-2.5	state	44.518	vs 39.227 before
+2026-10-28	e070c9a	REFUTED: a level's frames a persistent Chain in a thread arena (refcounted nodes; a level copied = one hold)	1.5-2.5	choose	104.632	vs 103.002 before; allocations 6031 -> 5019 a run: K0's Rc and the levels copied stay. The whole design (frames, k, activations) in ~/work/my/okay-machine-proto: general 31, choose 71, a generator 47
