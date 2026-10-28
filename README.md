@@ -102,19 +102,21 @@ Two ways, one `Rest`/`Step` (`okay::resumable`), the same handlers:
   coroutine `Clone` (`coroutine_clone`). `tests/resumable_co.rs`.
 
 A rest is resumed IN PLACE (`resume(&mut self, answer)`): a step moves nothing but the operation; a clone is a copy
-of the variables at the stop, no allocation.
+of the variables at the stop, no allocation. An answer is erased (`Answer`) but checked by a load, not a call: taking
+it leaves nothing to clean up if it unwinds, so it inlines.
 
 µs per run, n = 1000, the handlers' answers through `black_box` (`resumable/benches/lanes.rs`, three alternating
 rounds, 2026-10-28, medians):
 
 | lane | `#[resumable]` | coroutines | okay-goose | Scala (okay-core's kernel) |
 |---|---|---|---|---|
-| every path of a choice among 1000 | 1.62 | **1.57** | 1.23 | 13.24 |
-| a deep handler taking the rest at each of 1000 steps | 0.59 | **0.46** | 1.23 | 9.44 |
-| a generator of 1000 values, summed | 0.30 | **0.29** | 1.21 | 22.6 |
+| every path of a choice among 1000 | **0.28** | **0.28** | 1.23 | 13.24 |
+| a deep handler taking the rest at each of 1000 steps | 0.62 | **0.49** | 1.23 | 9.44 |
+| a generator of 1000 values, summed | 0.32 | **0.31** | 1.21 | 22.6 |
 
-A path of a choice is a clone, a resumption and a handler's call: ~1.6 ns. The single-resume lanes are at the floor
-of the `black_box` around each answer: the loop is inlined whole.
+A path of a choice is a clone and a resumption, inlined into the handler's loop. The single-resume lanes are at the
+floor of the `black_box` around each answer: the loop is inlined whole. (Measured with another session's benchmarks
+on the machine, load ~4: the lanes read ~5–10% slower than on a quiet one.)
 
 ## One API, compiled by the handler's type (`okay::typed`)
 

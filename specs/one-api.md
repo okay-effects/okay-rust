@@ -86,3 +86,17 @@ stall each step. Measured, three alternating rounds, medians (µs, choose / gene
 Refuted on the way: `#[inline(always)]` on `Co::resume` (6.10 → 6.13 general: the coroutine body stayed a call);
 the coroutine boxed (`Co(Box<G>)`: general 2.28, generate 1.83, but choose 8.6 — a clone an allocation); the
 choose handler resuming before its recursive call (2.46 for both: worse).
+
+Then the erased answer: an `Answer` taken by a resumable program made a path of a choice 1.6 ns where a typed one
+took 0.24 (a probe, the same rest answered `Answer` / `usize`: 1.61 / 0.24 µs; with `-C panic=abort` both 0.24). The
+cause: `Val::take` of a boxed value called `downcast` — `type_id` through the box's vtable — with the box alive, so
+the take had an unwinding cleanup, and a program with one is not inlined into its handler. Now a boxed value carries
+its `TypeId` at its head (`Box<Tagged<dyn Any>>`): checked by a load; a mismatch drops it out of line, then panics.
+Small values as before. choose 1.62 → 0.28 (both ways); okay-machine's kernel bench (all lanes, three alternating
+rounds, aligned loops) neutral to 3–7% faster.
+
+Refuted on the way: the type beside the value in the enum (`Boxed { ty, b }`: T:dyn0 +23%); one struct, the box
+or the value in 16 raw bytes and a flag, its own `Drop` (CO:generate 3×, the machine's writer +21%); the type
+hoisted above an enum (T:state 2.3× faster but T:dyn0 3.5× slower — a `Val` moved through memory in pieces of
+different widths, store-to-load forwarding failing). The layout of the small form is what the typed lanes are tuned
+to; the fix touches only the boxed one.
