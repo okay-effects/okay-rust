@@ -125,3 +125,36 @@ date	sha	arm	host_load	lane	us_per_run	note
 2026-10-27	b516a96	all lanes	1.5-2.6	T:dyn4	5.487	one run, quiet machine, after the split
 2026-10-27	b516a96	all lanes	1.5-2.6	H:hosted	26.062	one run, quiet machine, after the split
 2026-10-27	b516a96	all lanes	1.5-2.6	H:driven	39.681	one run, quiet machine, after the split
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	pure	8.718	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	answered	9.215	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	general	38.190	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	forwarded	9.292	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	forwarded16	13.407	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	forwardedK	40.026	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	forwardedK16	84.715	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	reads	10.492	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	writer	9.840	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	stateCell	33.110	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	state	39.499	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	stateDeep	40.754	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	leftMaps	21.678	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	rightMaps	27.671	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	throwing	90.594	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	throwingK	120.690	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	choose	104.596	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	T:answered	0.251	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	T:reads	0.293	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	T:writer	1.089	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	T:state	1.878	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	T:stateDeep	0.018	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	T:stateOpaque	1.864	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	T:readsOpaque	0.290	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	T:throwing	7.944	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	T:generate	2.158	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	T:intercepted	0.245	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	T:observed	12.544	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	T:dyn0	1.009	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	T:dyn1	2.350	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	T:dyn4	5.304	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	H:hosted	25.978	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
+2026-10-28	e411866	all lanes, aligned loops	3.9-4.4	H:driven	41.870	median of 3 alternating rounds vs dc9727b; another session's benchmarks beside
