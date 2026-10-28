@@ -1,11 +1,12 @@
 # okay-rust
 
 [okay](https://github.com/okay-effects/okay)'s algebraic effects in Rust, no dependencies (the allocator optional:
-`--features mimalloc`). Two crates:
+`--features mimalloc`). Three crates:
 
 | crate | what |
 |---|---|
 | **`okay`** (the root) | THE ONE API — `okay::typed`, `okay::host`: what a program is written in |
+| **`okay-resumable`** (`resumable/`) | the rest taken MANY times, compiled: `#[resumable(Ops)]` makes a function an explicit rest — an enum, `Clone` — on stable Rust; with `--features coroutines` (nightly) the same from a coroutine. [Multi-shot](#the-rest-taken-many-times-okayresumable) |
 | **`okay-machine`** (`machine/`) | its SPECIFICATION — okay-core's kernel, a program as data; the rest taken many times, answer-type modification; okay-core's suites, a reference interpreter, okay-kernel's TCK. [machine/README.md](machine/README.md) |
 
 ONE API: a program is written once — an `async` function over a context (`needs!`, `eff!`); what answers its effects
@@ -56,6 +57,56 @@ This repository was okay-rs (github.com/okay-effects/okay-rs, its history kept h
 async/await), `okay::direct` (effects passed down), the one API's replay and `okay::dynamic` were here until
 2026-10-27: the one API took over each part, one-shot by design (git history keeps them).
 
+## The rest taken many times (`okay::resumable`)
+
+A handler resuming the rest many times (every path of a choice, a search, backtracking) needs the rest as a VALUE it
+can copy. An `async` body's future cannot be cloned, so the one API is one-shot; a program whose rest is taken many
+times is a RESUMABLE fn — its rest an explicit `Clone` value, compiled, no replay (the body is never run again):
+
+```rust
+use okay::resumable::*;
+use okay_resumable::resumable;
+
+okay::effect! { pub enum Choose: Plain { Among(n: usize) -> usize = among; } }
+okay::ops! { pub enum ChooseOps { Choose } }    // the operations it may stop at: an enum, `From` each effect
+
+#[resumable(ChooseOps)]
+fn pick(base: usize) -> usize {
+    let a: usize = ask!(Choose::Among(3));      // a stop: the rest returned, resumed with the answer
+    let b: usize = ask!(Choose::Among(2));
+    base + a * 10 + b
+}
+
+// a handler: a function over the steps — every path, the rest cloned for each alternative
+fn all<K: Rest<Out = A>, A>(step: Step<K::Op, K, A>, out: &mut Vec<A>) where K::Op: OpOf<Choose> {
+    match step {
+        Step::Done(a) => out.push(a),
+        Step::Perform(op, k) => match op.op() {
+            Ok(Choose::Among(n, r)) => (0..n).for_each(|i| all(k.clone().resume(r.give(i)), out)),
+            Err(_) => unreachable!(),
+        },
+    }
+}
+```
+
+Two ways, one `Rest`/`Step` (`okay::resumable`), the same handlers:
+
+- **stable** — `#[resumable(Ops)]` (crate `okay-resumable`): the function made an enum, one variant per stop holding
+  the variables in scope there (typed: `let x: T = …` for one living across a stop); each variant's resumption is
+  straight code to the next stop. Lowers `if`, `while`, `loop`, `match` arms, blocks, `break`/`continue`/`return`; a
+  stop inside an expression, a `for` holding a stop and type parameters are errors saying so.
+- **nightly** — `--features coroutines`: `co(okay::coroutine!(move -> T { … }))`, any Rust inside (`for` too), the
+  coroutine `Clone` (`coroutine_clone`). `tests/resumable_co.rs`.
+
+µs per run, n = 1000, the handlers' answers through `black_box` (`resumable/benches/lanes.rs`, three alternating
+rounds, 2026-10-28, medians):
+
+| lane | `#[resumable]` | coroutines | okay-goose | Scala (okay-core's kernel) |
+|---|---|---|---|---|
+| every path of a choice among 1000 | **0.24** | 2.75 | 1.23 | 13.24 |
+| a deep handler taking the rest at each of 1000 steps | **0.35** | 6.33 | 1.23 | 9.44 |
+| a generator of 1000 values, summed | **0.29** | 6.25 | 1.21 | 22.6 |
+
 ## One API, compiled by the handler's type (`okay::typed`)
 
 `eff! { x <- op(cx); …; yield v }` — the default form of `eff!` — is an `async` block: a state machine the
@@ -66,7 +117,8 @@ in a row). Monomorphized for the handlers it runs under, an operation is compile
 - dropping the rest (`either`): the body's future dropped where it raised;
 - taking the rest once (`generate`): the block suspended, resumed once — the state machine itself the `k`, nothing on
   the heap;
-- taken many times: not here — ONE-SHOT by design; the rest taken many times is the machine's (the rest as data).
+- taken many times: not in an `async` body — ONE-SHOT by design; the rest taken many times is a resumable fn's
+  ([below](#the-rest-taken-many-times-okayresumable)) or the machine's (the rest as data). Never a replay.
 
 No turbofish: an operation's type is inferred from the context's bounds (`Has<Reader<i64>, _>`) or its argument.
 No index parameters either: `needs!` writes them — `cx: [Reader<i64>, State<i64>]` lists the effects, as `row![…]`

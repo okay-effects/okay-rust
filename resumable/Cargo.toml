@@ -1,0 +1,26 @@
+[package]
+name = "okay-resumable"
+version = "0.1.0"
+edition = "2024"
+description = "#[resumable]: a function made into an explicit state machine whose rest is a Clone value — okay's multi-shot continuations on stable Rust"
+license = "Apache-2.0"
+repository = "https://github.com/okay-effects/okay-rust"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full", "visit", "visit-mut"] }
+quote = "1"
+proc-macro2 = "1"
+
+[dev-dependencies]
+okay = { package = "okay-rust", path = ".." }
+
+[features]
+# the lanes of coroutines too (nightly)
+coroutines = ["okay/coroutines"]
+
+[[bench]]
+name = "lanes"
+harness = false

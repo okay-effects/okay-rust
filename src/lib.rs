@@ -21,6 +21,8 @@
 //! assert_eq!(run(twice(&cx)), Ok(12));
 //! ```
 
+#![cfg_attr(feature = "coroutines", feature(coroutine_trait))]
+
 /// mimalloc as the global allocator (feature `mimalloc`)
 #[cfg(feature = "mimalloc")]
 #[global_allocator]
@@ -33,6 +35,7 @@ pub mod effects;
 pub mod guarantees;
 pub mod host;
 pub mod services;
+pub mod resumable;
 mod kinds;
 mod reply;
 pub mod typed;

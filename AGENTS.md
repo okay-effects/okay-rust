@@ -7,7 +7,15 @@ SPECIFICATION — okay-core's kernel (`Eff`, the machine, rows, `Cont`, the refe
 `host`, `needs`, `data`; its tests in `machine/tests`, the bench `machine/benches/kernel.rs` (both crates' lanes) with
 `count-allocs`. `examples/shop` on the one API. `cargo test --workspace` runs all. This repository was okay-rs.
 Removed 2026-10-27 (the one API took over; git history keeps them): okay-effects, `okay::direct`, the one API's replay
-(ONE-SHOT by design: the rest taken many times is the machine's) and `okay::dynamic`.
+(ONE-SHOT by design: the rest taken many times is a resumable fn's or the machine's) and `okay::dynamic`.
+`okay-resumable` (`resumable/`, a proc macro, syn/quote): `#[resumable(Ops)]` — the rest taken many times, compiled,
+stable; the core (`Rest`, `Step`, `OpOf`, `ops!`, `ask!`, `co`/`coroutine!` under `--features coroutines`, nightly) is
+`okay::resumable`. NEVER a replay (the user's rule 2026-10-28): multi-shot is a rest that is a `Clone` value.
+Its generator (`resumable/src/lib.rs`): `find` collects the stops (variables in scope, the blocks around each);
+`gen_rest(k)` writes stop k's resumption — the rest of each block around it innermost first, a loop's remaining body
+under labels `'okay_c{id}` (continue) / `'okay_b{id}` (break) then the loop written out again. Tests in
+`resumable/tests`, the `compile_fail` errors in its crate docs, the bench `resumable/benches/lanes.rs`
+(`cargo +nightly bench -p okay-resumable --features coroutines --bench lanes`).
 
 - Rust 2024 (rustc 1.92), no dependencies but the optional `mimalloc` (feature `mimalloc`: the global allocator); `cargo test` runs the unit, integration and doc tests (the doc tests hold
   the `compile_fail` checks: a row not handled has no `run`; an effect not in the row cannot be performed).

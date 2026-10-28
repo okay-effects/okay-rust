@@ -62,3 +62,12 @@ Tests: `tests/pstate.rs`'s protocol and pipeline, with the compile_fail cases.
 The user's decisions: the one API is ONE-SHOT — replay removed (typed `all`/`first`/`among`/`flip`/`fail`, the host's
 `every_path`); `okay::dynamic` removed (its reason was the TCK on typed, which needs a choice); the rest taken many
 times is the machine's alone. The machine moves to its own crate (`okay-machine`): `okay` is the one API.
+
+## 2026-10-28: the rest taken many times, compiled
+
+The user's decision: no replay, ever; multi-shot is a rest that is a value. `okay::resumable` (`Rest`: `Clone`,
+`resume(answer) -> Step`) with two ways to make one: `#[resumable(Ops)]` (crate `okay-resumable`, stable: the function
+an enum of its stops, each resumption straight code) and a coroutine (`--features coroutines`, nightly,
+`coroutine_clone`). The same handlers drive both. Measured (n = 1000, µs): choose 0.24, general 0.35, generate 0.29
+(stable) against okay-goose's 1.23 / 1.23 / 1.21; the coroutines 2.75 / 6.33 / 6.25. Before each resumption was
+straight code, the generated rest was a loop over states (`match` per hop): 1.25 / 4.89 / 3.68.

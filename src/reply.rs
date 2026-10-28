@@ -38,6 +38,10 @@ impl<T: 'static> Reply<T> {
     pub fn give(self, t: T) -> Answer {
         Answer(Val::new(t))
     }
+    /// the answer given to this operation, at its type — where a resumable program takes it back
+    pub fn take(self, a: Answer) -> T {
+        a.0.take::<T>()
+    }
 }
 
 /// no value: an operation that never comes back (`fail`, `raise`)

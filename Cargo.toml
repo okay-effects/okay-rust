@@ -19,9 +19,11 @@ mimalloc = { version = "0.1", optional = true, default-features = false }
 
 [features]
 mimalloc = ["dep:mimalloc"]
+# nightly: resumable programs as coroutines, their rest the coroutine cloned (okay::resumable::co)
+coroutines = []
 
 [workspace]
-members = ["machine", "examples/shop"]
+members = ["machine", "resumable", "examples/shop"]
 
 [profile.release]
 codegen-units = 1
