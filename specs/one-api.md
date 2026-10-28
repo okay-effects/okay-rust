@@ -71,3 +71,18 @@ an enum of its stops, each resumption straight code) and a coroutine (`--feature
 `coroutine_clone`). The same handlers drive both. Measured (n = 1000, µs): choose 0.24, general 0.35, generate 0.29
 (stable) against okay-goose's 1.23 / 1.23 / 1.21; the coroutines 2.75 / 6.33 / 6.25. Before each resumption was
 straight code, the generated rest was a loop over states (`match` per hop): 1.25 / 4.89 / 3.68.
+
+Later the same day: a rest is resumed IN PLACE — `Rest::resume(&mut self, answer) -> Step<Op, Out>` (was
+`resume(self) -> Step<Op, Self, Out>`, the rest moved into each step and out). The coroutine paid for the move: its
+body stores its state's byte, the caller then loads the whole coroutine to move it — a store-to-load forwarding
+stall each step. Measured, three alternating rounds, medians (µs, choose / general / generate):
+
+- coroutines: 2.76 / 6.55 / 6.45 → 1.57 / 0.46 / 0.29;
+- `#[resumable]`: 0.24 / 0.36 / 0.30 → 1.62 / 0.59 / 0.30. The old choose was the compiler inlining a path that ends
+  at once into the handler's loop (the resumption in the caller, `count_all(k.clone().resume(..))`); with the
+  resumption in the handler (the in-place form's own shape) each path is a call, ~1.6 ns, for both ways. general is
+  at the floor of its `black_box`es either way.
+
+Refuted on the way: `#[inline(always)]` on `Co::resume` (6.10 → 6.13 general: the coroutine body stayed a call);
+the coroutine boxed (`Co(Box<G>)`: general 2.28, generate 1.83, but choose 8.6 — a clone an allocation); the
+choose handler resuming before its recursive call (2.46 for both: worse).

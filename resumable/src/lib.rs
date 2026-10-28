@@ -1,6 +1,6 @@
 //! `#[resumable(Ops)]`: a function whose body stops at `ask!(Effect::Op(args))`, made into an explicit REST — an enum,
-//! one variant per stop, each holding the variables in scope there, `#[derive(Clone)]`; its steps
-//! `okay::resumable::Step<Ops, Rest, A>`. The rest is a value: a handler resumes it as many times as it wants by
+//! one variant per stop, each holding the variables in scope there, `#[derive(Clone)]`, resumed in place to its next
+//! step (`okay::resumable::Step<Ops, A>`). The rest is a value: a handler resumes it as many times as it wants by
 //! cloning it. No coroutine, no future, no replay: stable Rust.
 //!
 //! Each variant's resumption is straight code: from its stop to the next one, the rest of each block around it, a
@@ -56,7 +56,8 @@
 //!     let i: usize = ask!(Choose::Among(n));
 //!     i + k
 //! }
-//! let Step::Perform(Ops::Choose(Choose::Among(3, r)), k) = fine(3) else { panic!() };
+//! let mut k = fine(3);
+//! let Step::Perform(Ops::Choose(Choose::Among(3, r))) = k.resume(unit()) else { panic!() };
 //! let all: Vec<usize> = (0..3)
 //!     .map(|i| match k.clone().resume(r.give(i)) { Step::Done(v) => v, _ => panic!() })
 //!     .collect();
@@ -357,12 +358,12 @@ impl<'a> Gen<'a> {
             let func = &st.call.func;
             let args = st.call.args.iter();
             let ops = &self.ops;
-            return quote!(
-                return ::okay::resumable::Step::Perform(
-                    <#ops as ::core::convert::From<_>>::from(#func(#(#args,)* ::okay::Reply::new())),
-                    #name::#state { #(#names),* },
-                );
-            );
+            // the operation made before the variables move into the rest: its arguments may read them
+            return quote!({
+                let okay_op = <#ops as ::core::convert::From<_>>::from(#func(#(#args,)* ::okay::Reply::new()));
+                *self = #name::#state { #(#names),* };
+                return ::okay::resumable::Step::Perform(okay_op);
+            });
         }
         if let (Stmt::Expr(e, semi), true) = (s, has_stop_stmt(s)) {
             let code = self.gen_expr(e, target);
@@ -576,34 +577,38 @@ fn generate(ops: Type, f: ItemFn) -> syn::Result<TokenStream2> {
         quote!(#name::#s { #(mut #names),* } => { #rest #end })
     });
     let pdecls = params.iter().map(|(n, t)| quote!(#n: #t));
+    let pnames: Vec<_> = params.iter().map(|(n, _)| n).collect();
+    let pfields = params.iter().map(|(n, t)| quote!(#n: #t));
     let attrs = &f.attrs;
-    let empty = g.stops.is_empty();
-    let resume_body = if empty {
-        quote!(match self {})
-    } else {
-        quote!(match self { #(#arms)* })
-    };
+    let ended = format!("{fname} resumed after its end");
     Ok(quote! {
-        /// the rest of a resumable fn: which stop it is at, and the variables in scope there — resumed by
-        /// `Rest::resume`, cloned to resume again
+        /// a resumable fn's rest: not started (`S0`, its parameters), at a stop (the variables in scope there), or
+        /// ended — resumed in place by `Rest::resume`, cloned to resume again
         #[derive(Clone)]
         #[allow(non_camel_case_types, dead_code)]
-        #vis enum #name { #(#variants),* }
+        #vis enum #name { S0 { #(#pfields),* }, #(#variants,)* Ended }
 
         impl ::okay::resumable::Rest for #name {
             type Op = #ops;
             type Out = #out;
+            #[inline]
             #[allow(unused_mut, unused_variables, unreachable_code, unused_labels, clippy::needless_return)]
-            fn resume(self, okay_answer: ::okay::Answer) -> ::okay::resumable::Step<#ops, #name, #out> {
-                #resume_body
+            fn resume(&mut self, okay_answer: ::okay::Answer) -> ::okay::resumable::Step<#ops, #out> {
+                match ::core::mem::replace(self, #name::Ended) {
+                    #name::S0 { #(mut #pnames),* } => {
+                        let _ = okay_answer;
+                        #start
+                        #end
+                    }
+                    #(#arms)*
+                    #name::Ended => panic!(#ended),
+                }
             }
         }
 
         #(#attrs)*
-        #[allow(unused_mut, unreachable_code, clippy::needless_return)]
-        #vis fn #fname(#(#pdecls),*) -> ::okay::resumable::Step<#ops, #name, #out> {
-            #start
-            #end
+        #vis fn #fname(#(#pdecls),*) -> #name {
+            #name::S0 { #(#pnames),* }
         }
     })
 }

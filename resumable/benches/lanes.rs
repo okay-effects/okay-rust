@@ -9,6 +9,7 @@ use std::hint::black_box;
 use std::time::{Duration, Instant};
 
 use okay::resumable::*;
+use okay::Answer;
 use okay_resumable::resumable;
 
 okay::effect! { pub enum Choose: Plain { Among(n: usize) -> usize = among; } }
@@ -53,16 +54,17 @@ fn numbers(n: i64) {
 // THE HANDLERS: plain functions over the steps, the same for both ways; each answer and value through
 // `black_box`, so the compiler cannot fold a whole run into a formula
 
-fn count_all<K: Rest>(step: Step<K::Op, K, K::Out>, found: &mut i64)
+/// every path: the rest resumed on a clone for each alternative
+fn count_all<K: Rest>(mut k: K, answer: Answer, found: &mut i64)
 where
     K::Op: OpOf<Choose>,
 {
-    match step {
+    match k.resume(answer) {
         Step::Done(_) => *found += 1,
-        Step::Perform(op, k) => match op.op() {
+        Step::Perform(op) => match op.op() {
             Ok(Choose::Among(n, r)) => {
                 for i in 0..n {
-                    count_all(k.clone().resume(r.give(black_box(i))), found)
+                    count_all(k.clone(), r.give(black_box(i)), found)
                 }
             }
             Err(_) => unreachable!(),
@@ -70,33 +72,44 @@ where
     }
 }
 
-fn answer<K: Rest>(mut step: Step<K::Op, K, K::Out>) -> K::Out
+/// a program run under `count_all`
+fn paths<K: Rest>(k: K) -> i64
+where
+    K::Op: OpOf<Choose>,
+{
+    let mut found = 0;
+    count_all(k, unit(), &mut found);
+    found
+}
+
+fn answer<K: Rest>(mut k: K) -> K::Out
 where
     K::Op: OpOf<Tick>,
 {
+    let mut a = unit();
     loop {
-        match step {
+        match k.resume(a) {
             Step::Done(v) => return v,
-            Step::Perform(op, k) => match op.op() {
-                Ok(Tick::T(v, r)) => step = k.resume(r.give(black_box(v))),
+            Step::Perform(op) => match op.op() {
+                Ok(Tick::T(v, r)) => a = r.give(black_box(v)),
                 Err(_) => unreachable!(),
             },
         }
     }
 }
 
-fn sum<K: Rest>(mut step: Step<K::Op, K, K::Out>) -> i64
+fn sum<K: Rest>(mut k: K) -> i64
 where
     K::Op: OpOf<Yield>,
 {
-    let mut total = 0;
+    let (mut total, mut a) = (0, unit());
     loop {
-        match step {
+        match k.resume(a) {
             Step::Done(_) => return total,
-            Step::Perform(op, k) => match op.op() {
+            Step::Perform(op) => match op.op() {
                 Ok(Yield::Emit(v, r)) => {
                     total += black_box(v);
-                    step = k.resume(r.give(()))
+                    a = r.give(())
                 }
                 Err(_) => unreachable!(),
             },
@@ -117,9 +130,7 @@ mod co_lanes {
             let i: usize = ask!(Choose::Among(n));
             i + 1
         });
-        let mut found = 0;
-        count_all(co::<ChooseOps, usize, _>(p), &mut found);
-        found
+        paths(co::<ChooseOps, usize, _>(p))
     }
     pub fn general() -> i64 {
         let n = black_box(N);
@@ -173,18 +184,13 @@ fn main() {
         .collect();
     let run = |name: &str| only.is_empty() || only.iter().any(|o| o == name);
     // the answers, checked
-    let mut found = 0;
-    count_all(pick(N as usize), &mut found);
+    let found = paths(pick(N as usize));
     assert_eq!(
         (found, answer(ticks(N)), sum(numbers(N))),
         (N, true, N * (N - 1) / 2)
     );
     if run("RS:choose") {
-        lane("RS:choose", &|| {
-            let mut f = 0;
-            count_all(pick(black_box(N as usize)), &mut f);
-            f
-        });
+        lane("RS:choose", &|| paths(pick(black_box(N as usize))));
     }
     if run("RS:general") {
         lane("RS:general", &|| answer(ticks(black_box(N))) as i64);

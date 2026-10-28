@@ -65,6 +65,7 @@ times is a RESUMABLE fn — its rest an explicit `Clone` value, compiled, no rep
 
 ```rust
 use okay::resumable::*;
+use okay::Answer;
 use okay_resumable::resumable;
 
 okay::effect! { pub enum Choose: Plain { Among(n: usize) -> usize = among; } }
@@ -72,21 +73,23 @@ okay::ops! { pub enum ChooseOps { Choose } }    // the operations it may stop at
 
 #[resumable(ChooseOps)]
 fn pick(base: usize) -> usize {
-    let a: usize = ask!(Choose::Among(3));      // a stop: the rest returned, resumed with the answer
+    let a: usize = ask!(Choose::Among(3));      // a stop: the operation given to the handler
     let b: usize = ask!(Choose::Among(2));
     base + a * 10 + b
 }
 
-// a handler: a function over the steps — every path, the rest cloned for each alternative
-fn all<K: Rest<Out = A>, A>(step: Step<K::Op, K, A>, out: &mut Vec<A>) where K::Op: OpOf<Choose> {
-    match step {
+// a handler: a function over the steps — every path, the rest resumed on a clone for each alternative
+fn all<K: Rest>(mut k: K, answer: Answer, out: &mut Vec<K::Out>) where K::Op: OpOf<Choose> {
+    match k.resume(answer) {
         Step::Done(a) => out.push(a),
-        Step::Perform(op, k) => match op.op() {
-            Ok(Choose::Among(n, r)) => (0..n).for_each(|i| all(k.clone().resume(r.give(i)), out)),
+        Step::Perform(op) => match op.op() {
+            Ok(Choose::Among(n, r)) => (0..n).for_each(|i| all(k.clone(), r.give(i), out)),
             Err(_) => unreachable!(),
         },
     }
 }
+let mut out = vec![];
+all(pick(100), unit(), &mut out);              // a program not started is a rest: started with `unit()`
 ```
 
 Two ways, one `Rest`/`Step` (`okay::resumable`), the same handlers:
@@ -98,14 +101,20 @@ Two ways, one `Rest`/`Step` (`okay::resumable`), the same handlers:
 - **nightly** — `--features coroutines`: `co(okay::coroutine!(move -> T { … }))`, any Rust inside (`for` too), the
   coroutine `Clone` (`coroutine_clone`). `tests/resumable_co.rs`.
 
+A rest is resumed IN PLACE (`resume(&mut self, answer)`): a step moves nothing but the operation; a clone is a copy
+of the variables at the stop, no allocation.
+
 µs per run, n = 1000, the handlers' answers through `black_box` (`resumable/benches/lanes.rs`, three alternating
 rounds, 2026-10-28, medians):
 
 | lane | `#[resumable]` | coroutines | okay-goose | Scala (okay-core's kernel) |
 |---|---|---|---|---|
-| every path of a choice among 1000 | **0.24** | 2.75 | 1.23 | 13.24 |
-| a deep handler taking the rest at each of 1000 steps | **0.35** | 6.33 | 1.23 | 9.44 |
-| a generator of 1000 values, summed | **0.29** | 6.25 | 1.21 | 22.6 |
+| every path of a choice among 1000 | 1.62 | **1.57** | 1.23 | 13.24 |
+| a deep handler taking the rest at each of 1000 steps | 0.59 | **0.46** | 1.23 | 9.44 |
+| a generator of 1000 values, summed | 0.30 | **0.29** | 1.21 | 22.6 |
+
+A path of a choice is a clone, a resumption and a handler's call: ~1.6 ns. The single-resume lanes are at the floor
+of the `black_box` around each answer: the loop is inlined whole.
 
 ## One API, compiled by the handler's type (`okay::typed`)
 

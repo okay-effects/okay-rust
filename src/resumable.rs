@@ -1,15 +1,17 @@
-//! MULTI-SHOT CONTINUATIONS AS VALUES: a resumable program stops at each operation and gives back a STEP — its value
-//! (`Done`), or the operation and its rest `k` (`Perform`). The rest is a value of a type implementing `Rest`: `Clone`,
-//! so a handler resumes it as many times as it wants — `k.clone().resume(answer)` — each time from the same point, the
+//! MULTI-SHOT CONTINUATIONS AS VALUES: a resumable program is a value of a type implementing `Rest`. Resumed with an
+//! answer, it runs in place to its next STEP — its value (`Done`), or an operation (`Perform`), where it stopped. It is
+//! `Clone`, so a handler resumes it as many times as it wants — a clone for each — each time from the same point, the
 //! program's variables as they were. No replay: nothing runs twice but what each resumption runs.
 //!
 //! Two ways to write one, the same steps, the same handlers:
 //!
 //! - `#[okay_resumable::resumable]` (the `okay-resumable` crate, stable Rust): a function whose body stops at
-//!   `ask!(Effect::Op(args))`, made into an explicit state machine — its states an enum, each with the variables in
-//!   scope, `#[derive(Clone)]`;
+//!   `ask!(Effect::Op(args))`, made into an explicit rest — an enum, a variant per stop holding the variables in
+//!   scope there, `#[derive(Clone)]`;
 //! - a coroutine (nightly Rust, feature `coroutines`: `coroutines`, `coroutine_trait`, `coroutine_clone`): its body
-//!   stops at `ask!(…)`, which is `yield`; the rest the coroutine itself, cloned (`co`).
+//!   stops at `ask!(…)`, which is `yield`; the rest the coroutine itself (`co`), cloned.
+//!
+//! A program not started is a rest too: its first resumption's answer is `unit()`, not looked at.
 //!
 //! An operation is an effect's variant carrying its `Reply` (`effect!`): `ask!(Choose::Among(3))` adds the reply,
 //! and the answer comes back at the reply's type. A program's operations are one enum, a union of its effects
@@ -24,56 +26,57 @@
 //!
 //! // a resumable program written by hand as the macro writes it: two choices, then a value
 //! #[derive(Clone)]
-//! enum Pick { AfterA, AfterB { a: usize } }
+//! enum Pick { Start, AfterA, AfterB { a: usize }, Ended }
 //! impl Rest for Pick {
 //!     type Op = PickOps;
 //!     type Out = usize;
-//!     fn resume(self, v: okay::Answer) -> Step<PickOps, Pick, usize> {
-//!         match self {
+//!     fn resume(&mut self, v: okay::Answer) -> Step<PickOps, usize> {
+//!         match std::mem::replace(self, Pick::Ended) {
+//!             Pick::Start => {
+//!                 *self = Pick::AfterA;
+//!                 Step::Perform(PickOps::from(Choose::Among(3, Reply::new())))
+//!             }
 //!             Pick::AfterA => {
-//!                 let a: usize = Reply::<usize>::new().take(v);
-//!                 let r = Reply::new();
-//!                 Step::Perform(PickOps::from(Choose::Among(2, r)), Pick::AfterB { a })
+//!                 *self = Pick::AfterB { a: Reply::<usize>::new().take(v) };
+//!                 Step::Perform(PickOps::from(Choose::Among(2, Reply::new())))
 //!             }
 //!             Pick::AfterB { a } => Step::Done(a * 10 + Reply::<usize>::new().take(v)),
+//!             Pick::Ended => panic!("resumed after its end"),
 //!         }
 //!     }
 //! }
-//! fn pick() -> Step<PickOps, Pick, usize> {
-//!     Step::Perform(PickOps::from(Choose::Among(3, Reply::new())), Pick::AfterA)
-//! }
 //!
-//! // every path: the rest resumed once for each alternative — cloned
-//! fn all<K: Rest<Out = A>, A>(step: Step<K::Op, K, A>, out: &mut Vec<A>) where K::Op: OpOf<Choose> {
-//!     match step {
+//! // every path: the rest resumed once for each alternative — a clone for each
+//! fn all<K: Rest>(mut k: K, answer: okay::Answer, out: &mut Vec<K::Out>) where K::Op: OpOf<Choose> {
+//!     match k.resume(answer) {
 //!         Step::Done(a) => out.push(a),
-//!         Step::Perform(op, k) => match op.op() {
-//!             Ok(Choose::Among(n, r)) => for i in 0..n { all(k.clone().resume(r.give(i)), out) },
+//!         Step::Perform(op) => match op.op() {
+//!             Ok(Choose::Among(n, r)) => for i in 0..n { all(k.clone(), r.give(i), out) },
 //!             Err(_) => panic!("an operation this handler does not take"),
 //!         },
 //!     }
 //! }
 //! let mut out = vec![];
-//! all(pick(), &mut out);
+//! all(Pick::Start, unit(), &mut out);
 //! assert_eq!(out, vec![0, 1, 10, 11, 20, 21]);
 //! ```
 
 use crate::reply::Answer;
 
-/// A STEP of a resumable program: its value, or an operation and the rest — resumed with the operation's answer
-pub enum Step<O, K, A> {
+/// A STEP of a resumable program: its value, or the operation it stopped at — the rest then resumed with its answer
+pub enum Step<O, A> {
     Done(A),
-    Perform(O, K),
+    Perform(O),
 }
 
-/// THE REST of a resumable program: a value, cloned to resume it more than once
-pub trait Rest: Clone + Sized {
+/// THE REST of a resumable program: a value, resumed in place; cloned to resume it more than once
+pub trait Rest: Clone {
     /// the program's operations: a union of its effects (`ops!`)
     type Op;
     /// the program's value
     type Out;
-    /// the program from where it stopped, given the operation's answer, to its next step
-    fn resume(self, answer: Answer) -> Step<Self::Op, Self, Self::Out>;
+    /// the program from where it stopped, given the operation's answer (`unit()` to start it), to its next step
+    fn resume(&mut self, answer: Answer) -> Step<Self::Op, Self::Out>;
 }
 
 /// AN OPERATION OF `E` in a union of effects: the operation, or the union given back (another effect's)
@@ -153,7 +156,7 @@ mod coroutine {
     use std::ops::{Coroutine, CoroutineState};
     use std::pin::Pin;
 
-    /// a coroutine stopped at an operation: the rest
+    /// a coroutine as a rest: resumed in place (`Unpin`: it holds no borrow of itself across a stop)
     #[derive(Clone)]
     pub struct Co<G>(pub G);
 
@@ -163,20 +166,21 @@ mod coroutine {
     {
         type Op = G::Yield;
         type Out = G::Return;
-        fn resume(mut self, answer: Answer) -> Step<G::Yield, Self, G::Return> {
+        #[inline]
+        fn resume(&mut self, answer: Answer) -> Step<G::Yield, G::Return> {
             match Pin::new(&mut self.0).resume(answer) {
-                CoroutineState::Yielded(op) => Step::Perform(op, self),
+                CoroutineState::Yielded(op) => Step::Perform(op),
                 CoroutineState::Complete(a) => Step::Done(a),
             }
         }
     }
 
-    /// the coroutine run to its first step: `co::<Ops, A, _>(…)` names its operations' union and its value
-    pub fn co<O, A, G>(g: G) -> Step<O, Co<G>, A>
+    /// a coroutine as a rest, not started: `co::<Ops, A, _>(…)` names its operations' union and its value
+    pub fn co<O, A, G>(g: G) -> Co<G>
     where
         G: Coroutine<Answer, Yield = O, Return = A> + Clone + Unpin,
     {
-        Co(g).resume(unit())
+        Co(g)
     }
 }
 

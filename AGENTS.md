@@ -11,6 +11,9 @@ Removed 2026-10-27 (the one API took over; git history keeps them): okay-effects
 `okay-resumable` (`resumable/`, a proc macro, syn/quote): `#[resumable(Ops)]` — the rest taken many times, compiled,
 stable; the core (`Rest`, `Step`, `OpOf`, `ops!`, `ask!`, `co`/`coroutine!` under `--features coroutines`, nightly) is
 `okay::resumable`. NEVER a replay (the user's rule 2026-10-28): multi-shot is a rest that is a `Clone` value.
+A rest is resumed IN PLACE (`resume(&mut self, answer) -> Step<Op, Out>`; moving it each step cost the coroutine a
+store-forwarding stall, 6 ns). The enum: `S0` (not started, the parameters), `S{k}` per stop, `Ended`; `resume`
+`mem::replace`s it by `Ended`, a stop writes `*self = S{k} {…}` then returns `Perform(op)`.
 Its generator (`resumable/src/lib.rs`): `find` collects the stops (variables in scope, the blocks around each);
 `gen_rest(k)` writes stop k's resumption — the rest of each block around it innermost first, a loop's remaining body
 under labels `'okay_c{id}` (continue) / `'okay_b{id}` (break) then the loop written out again. Tests in
