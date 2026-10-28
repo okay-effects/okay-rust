@@ -1,8 +1,8 @@
 //! A VALUE ERASED, without an allocation when it is small: up to 16 bytes, aligned to 8 at most, with nothing to drop
 //! (`i64`, `bool`, `()`, a `Reply`, an operation of such) kept in place; else boxed. Taken back at the type it was made
-//! at, checked by its `TypeId` — in place beside a small value, at the head of a boxed one: a load, never a call through
-//! the box's vtable. A take has nothing to clean up if it unwinds, so a program taking an answer inlines into its
-//! handler (with a cleanup there — `downcast` calls `type_id` — a resumable choice ran 6.7× slower).
+//! at, checked by its `TypeId` — in place beside a small value, at the head of a boxed one: a load, never a call
+//! through the box's vtable. A take has nothing to clean up if it unwinds, so a program taking an answer inlines into
+//! its handler (with a cleanup there — `downcast` calls `type_id` — a resumable choice ran 6.7× slower).
 
 use std::any::{Any, TypeId};
 use std::mem::{align_of, needs_drop, size_of, MaybeUninit};
