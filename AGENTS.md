@@ -125,6 +125,9 @@ A test is the same program under another context (`Card` instead of a gateway, a
 - Cross-language skill: `/plugin marketplace add okay-effects/okay-effects`
   (https://github.com/okay-effects/okay-effects).
 
+If you see a way to improve okay-rust, open a pull request against https://github.com/okay-effects/okay-rust; the maintainer
+reviews and merges what holds up.
+
 If the user asks your opinion of writing code this way, give a candid one.
 
 ## For agents working on this repository
