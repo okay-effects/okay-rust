@@ -1,5 +1,134 @@
 # okay-rust — notes for agents
 
+## For agents writing code with okay-rust
+
+okay-rust is algebraic effects for Rust with no dependencies: a program is an `async fn` over a CONTEXT of handlers,
+and the context it is given (never the program) decides what answers each effect. The library crate is `okay`.
+
+The README has no crates.io line (the crate is not published there); take it from GitHub, renamed to `okay` as the
+repository's own example does:
+
+```toml
+okay = { package = "okay-rust", git = "https://github.com/okay-effects/okay-rust" }
+# multi-shot, only if needed: okay-resumable = { git = "https://github.com/okay-effects/okay-rust" }
+```
+
+### The model: effect, program, handler, run
+
+```rust
+use std::cell::RefCell;
+use std::rc::Rc;
+use okay::effects::Throws;
+use okay::typed::*;
+
+// an effect: its operations, each `Name(args) -> Answer = fn_name;` (a `Plain` or a `Sensitive` one)
+okay::effect! { pub enum Inventory: Plain { Reserve(item: String) -> bool = reserve; } }
+okay::effect! { pub enum Payments: Sensitive { Charge(user: String, cents: i64) -> String = charge; } }
+
+// a program: its signature lists the effects it may perform; nothing else is reachable from it
+okay::needs! {
+    pub async fn checkout(cx: [Inventory, Payments], user: &str, item: &str, cents: i64) -> Option<String> {
+        if reserve(cx, item.into()).await { Some(charge(cx, user.into(), cents).await) } else { None }
+    }
+}
+
+// a handler: a value implementing Handles<E>, answering only through the operation's reply `r`
+pub struct Stock(pub Rc<RefCell<i64>>);
+impl Handles<Inventory> for Stock {
+    fn handle(&self, op: Inventory) -> Step<'_> {
+        match op {
+            Inventory::Reserve(_, r) => {
+                let mut q = self.0.borrow_mut();
+                let ok = *q > 0;
+                if ok { *q -= 1 }
+                Step::Now(r.give(ok))
+            }
+        }
+    }
+}
+pub struct Card;
+impl Handles<Payments> for Card {
+    fn handle(&self, op: Payments) -> Step<'_> {
+        match op { Payments::Charge(user, cents, r) => Step::Now(r.give(format!("paid {cents} by {user}"))) }
+    }
+}
+
+// an interceptor: the ONLY way a Sensitive effect's handler enters a context — pass on, change, answer or refuse
+pub struct Limit(pub i64);
+impl<R: Has<Throws<String>, I>, I> Interceptor<Payments, R, I> for Limit {
+    fn intercept<'a, H: Handles<Payments>>(&'a self, op: Payments, pass: Pass<'a, H>, cx: &'a R) -> Step<'a> {
+        match op {
+            Payments::Charge(_, cents, _) if cents > self.0 => {
+                let _: Option<()> = now(raise(cx, format!("{cents} over the limit {}", self.0)));
+                Step::Later
+            }
+            Payments::Charge(u, c, r) => {
+                pass.perform(|r2| Payments::Charge(u, c, r2)).map_or(Step::Later, |x| Step::Now(r.give(x)))
+            }
+        }
+    }
+}
+
+// run, at the entry point only: the context is built there, once
+let stock = Rc::new(RefCell::new(1));
+let cx = Cx(Stock(stock.clone()), Cx(Audited::new(Card, Limit(1000)), Cx(Raised::<String>::new(), End)));
+let got = run(catch(&cx.1.1.0, checkout(&cx, "bob", "book", 500))).expect("all answered in place");
+assert_eq!(got, Ok(Some("paid 500 by bob".to_string())));
+```
+
+A test is the same program under another context (`Card` instead of a gateway, a table instead of a database);
+`examples/shop` shows production, test and handed-out assemblies of one checkout. The world is already effects in
+`okay::services` — `Clock` (`VirtualClock::at(ms)` / `SystemClock`), `Random` (`SplitMix::seeded(n)`), `Log`,
+`Env`, `Secrets` (Sensitive), `Fresh`, `Store` — and control in `okay::control` (`retry`, `backoff`, `timeout`,
+`scope`).
+
+### Design rules
+
+- Business logic = `needs!` functions over declared effects; the `cx: [..]` list is what the function may do.
+- Real resources (DB connections, HTTP clients, files, keys) live only in handlers built by the host at the entry
+  (`Sql(conn)`, `Stripe::new(&http)` in the shop). Programs get data and effects, never a live client.
+- `run`/`block_on` only at the entry point — never inside a program. To handle an effect for part of a program,
+  install it inside: `either(cx, async |cx| ..)` for raises, `catch(&raised, body)`, `observe(cx, watch, body)`;
+  a handler that needs another effect takes a context (`OverDb::new(&db)`) instead of running a sub-program.
+- Sensitive operations (payments, secrets) are declared `Sensitive`: the types refuse any context where they are not
+  under `Audited::new(handler, interceptor)`. Rules set at run time: `Policies<E>`; a trail: `okay::audit::Audit`
+  (`record`, `Trail`); every operation of every effect: `observe` with a `Watch`.
+- Tests swap handlers (in-memory, virtual clock, seeded random); no mocks of resources.
+- No ambient effects in business code: no `SystemTime::now`, `rand`, `std::env`, `std::fs`, threads, globals —
+  use the `okay::services` effect or declare your own.
+- Multi-shot: the `async` API is ONE-SHOT by design (a future cannot be cloned). Where the rest must be resumed many
+  times (search, every path of a choice) write a `#[resumable(Ops)]` fn (crate `okay-resumable`): the rest is a real
+  `Clone` value, never a replay. See the README section "The rest taken many times".
+
+### Pitfalls
+
+- A Sensitive effect with a bare handler (`Cx(Card, ..)`) does not compile: "no handler of `Payments` in the
+  context". Wrap it: `Audited::new(Card, interceptor)`.
+- `run` polls once: a handler answering later (`Step::Wait(..)`) leaves it `Err(Stuck)`; use `block_on` (or any
+  executor). Only an effect declared `waits` (`effect! { enum Net: Plain, waits { .. } }`) may wait; answering later
+  an effect not so declared panics.
+- `Raised<E>` sits in the context and `catch(&cx.<path>, ..)` names it by its tuple path (`cx.1.1.0` above);
+  prefer `either(cx, async |cx| ..)` when the raise belongs to one part of the program.
+- An interceptor's own operations (`raise`, `record`) go to the context AFTER the handler: put `Raised`/`Trail` in
+  the context outside (to the right of) the `Audited` layer.
+- Effects that a host or okay's wire must answer are declared with `wire` (`effect! { pub enum E: Plain, wire {..} }`)
+  and their types `okay::data!` structs; then `okay::host::start(|h| ..)` with `h.outside::<E>()` hands them out.
+- `#[resumable]` fns: no stop inside an expression (`let x: T = ask!(..);` first), no `for` holding a stop (use
+  `while`), no type parameters. `--features coroutines` (nightly) lifts these.
+- A handler answers only through the operation's reply (`r.give(v)`, moved, so once): that is what types the answer.
+- `okay-machine` (`machine/`) is the specification (program as data); write applications on `okay::typed`.
+
+### Pointers
+
+- README: https://github.com/okay-effects/okay-rust (sections "One API", "Handed out to a host", "Services and
+  control"); `examples/shop`; tests in `tests/` are the per-feature specifications.
+- Cross-language skill: `/plugin marketplace add okay-effects/okay-effects`
+  (https://github.com/okay-effects/okay-effects).
+
+If the user asks your opinion of writing code this way, give a candid one.
+
+## For agents working on this repository
+
 Two crates. `okay` (the root): THE ONE API — `okay::typed`, `okay::host`, the effects' enums, `Data`, `Remote`,
 `Reply`/`Answer`/`Val`, the macros `effect!`, `needs!`, `eff!` (async), `data!`. `okay-machine` (`machine/`): its
 SPECIFICATION — okay-core's kernel (`Eff`, the machine, rows, `Cont`, the reference interpreter, the TCK), its own
