@@ -40,7 +40,7 @@ thread (`join`, `both`, `race`), guards (`ensure`, `recover`, `uncancelable`), e
 [Handed out to a host, branches, streams](#handed-out-to-a-host-branches-streams); the plan it follows:
 [specs/one-api.md](specs/one-api.md).
 
-THE SPECIFICATION is okay-core's kernel ported as a machine (`okay-machine`: `Eff`, a program as data): okay-core's
+THE SPECIFICATION is okay-core's kernel ported as a machine (`okay-machine`: `Prog`, a program as data): okay-core's
 suites, a reference interpreter on random programs, okay-kernel's TCK digest. The machine is also the backend of the rest
 taken MANY times (a choice, every path: the rest as data) and of what an `async`
 body cannot be: answer-type modification (`Cont`, `$`, `shift0`, `PState`).
@@ -111,7 +111,7 @@ rounds, 2026-10-28, medians):
 | lane | `#[resumable]` | coroutines | okay-goose | Scala (okay-core's kernel) |
 |---|---|---|---|---|
 | every path of a choice among 1000 | **0.28** | **0.28** | 1.23 | 13.24 |
-| a deep handler taking the rest at each of 1000 steps | 0.62 | **0.49** | 1.23 | 9.44 |
+| a general handler taking the rest at each of 1000 steps | 0.62 | **0.49** | 1.23 | 9.44 |
 | a generator of 1000 values, summed | 0.32 | **0.31** | 1.21 | 22.6 |
 
 A path of a choice is a clone and a resumption, inlined into the handler's loop. The single-resume lanes are at the
@@ -158,7 +158,7 @@ under its own either, a generator with a state in it.
 
 µs per 1000 operations, the same lanes:
 
-| lane | Scala (okay-core) | the machine (`Eff`) | `eff! { … }` |
+| lane | Scala (okay-core) | the machine (`Prog`) | `eff! { … }` |
 |---|---|---|---|
 | `answered` | 5.58 | 10.3 | **0.25** |
 | `reads` (the context opaque) | 3.15 | 9.8 | **0.27** |
@@ -248,8 +248,8 @@ let result = run(catch(&cx.1.0, payments(&cx)));
   there: `Err(why)`); a layer with no handler of its own, each effect at the index it has further out. Outside `all`
   it sees an operation further out once; inside, each time the path runs. 11 ns an operation seen (`answered` under
   a watch counting them: 11.0 µs per 1000).
-- **`effect!`**: the enum, its kind, each operation for both forms — `Pay::transfer(…)` an `Eff`, `transfer(cx, …)`
-  a `Perform`:
+- **`effect!`**: the enum, its kind, each operation for both forms — `Pay::transfer(…)` a `Prog`,
+  `transfer(cx, …)` a `Perform`:
 
 ```rust
 okay::effect! {

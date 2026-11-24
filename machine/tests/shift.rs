@@ -9,7 +9,7 @@ use okay_machine::effects::*;
 use okay_machine::*;
 
 type R<S> = row![Shifts<S, Nil>];
-type K<A, T, S> = Rc<dyn Fn(A) -> Eff<T, S>>;
+type K<A, T, S> = Rc<dyn Fn(A) -> Prog<S, T>>;
 
 #[test]
 fn a_body_dropping_k_aborts_the_reset_the_rest_never_runs() {
@@ -63,7 +63,7 @@ fn k_applied_runs_nothing_of_the_rest_the_rest_runs_when_stepped() {
 
 #[test]
 fn many_resets_and_shifts_in_constant_stack() {
-    fn many(n: i64, acc: i64) -> Eff<Nil, i64> {
+    fn many(n: i64, acc: i64) -> Prog<i64, Nil> {
         if n == 0 {
             pure(acc)
         } else {
@@ -119,11 +119,11 @@ fn shift0_k_itself_the_answer_resumed_after_the_reset_has_answered() {
 type T = row![Reader<i64>];
 type SR = row![Shifts<i64, T>, Reader<i64>];
 
-fn ask_sr() -> Eff<SR, i64> {
+fn ask_sr() -> Prog<i64, SR> {
     ask::<i64, SR, _>()
 }
 
-fn twice(k: K<i64, T, i64>, a: i64, b: i64) -> Eff<T, i64> {
+fn twice(k: K<i64, T, i64>, a: i64, b: i64) -> Prog<i64, T> {
     let k2 = k.clone();
     k(a).flat_map(move |x| k2(b).map(move |y| x + y))
 }

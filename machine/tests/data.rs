@@ -7,14 +7,14 @@ use okay_machine::effects::*;
 use okay_machine::*;
 
 type E = Emit<i64>;
-type Thunk<T> = Rc<dyn Fn() -> Eff<T, Gen<i64, T>>>;
+type Thunk<T> = Rc<dyn Fn() -> Prog<Gen<i64, T>, T>>;
 
-fn emits<R: Member<E, Ix> + 'static, Ix: 'static>(vs: Rc<Vec<i64>>, i: usize) -> Eff<R, ()> {
+fn emits<R: Member<E, Ix> + 'static, Ix: 'static>(vs: Rc<Vec<i64>>, i: usize) -> Prog<(), R> {
     if i == vs.len() { pure(()) } else { emit::<i64, R, Ix>(vs[i]).flat_map(move |_| emits::<R, Ix>(vs.clone(), i + 1)) }
 }
 
 /// two generators zipped: each resumed by turns, outside its handler
-fn zip<T: 'static>(a: Thunk<T>, b: Thunk<T>) -> Eff<T, Vec<(i64, i64)>> {
+fn zip<T: 'static>(a: Thunk<T>, b: Thunk<T>) -> Prog<Vec<(i64, i64)>, T> {
     a().flat_map(move |ga| {
         b().flat_map(move |gb| match (ga.clone(), gb) {
             (Gen::Next(x, nx), Gen::Next(y, ny)) => zip(nx, ny).map(move |mut rest| {
@@ -38,7 +38,7 @@ fn generators_zipped_each_k_kept_in_a_value_resumed_by_the_others_turn() {
 fn a_kept_k_resumed_under_the_handlers_of_the_row_outside_a_state_they_share() {
     type T = row![State<i64>];
     type ET = row![E, State<i64>];
-    fn counted(vs: Rc<Vec<i64>>, i: usize) -> Eff<ET, ()> {
+    fn counted(vs: Rc<Vec<i64>>, i: usize) -> Prog<(), ET> {
         if i == vs.len() {
             return pure(());
         }
@@ -68,13 +68,13 @@ fn a_kept_k_resumed_twice() {
 #[test]
 fn stack_safe_a_generator_of_many_values_drained() {
     type R = row![E];
-    fn drain(g: Eff<Nil, Gen<i64, Nil>>, acc: i64) -> Eff<Nil, i64> {
+    fn drain(g: Prog<Gen<i64, Nil>, Nil>, acc: i64) -> Prog<i64, Nil> {
         g.flat_map(move |g| match g {
             Gen::Next(v, next) => drain(next(), acc + v),
             Gen::Done => pure(acc),
         })
     }
-    fn many(i: i64) -> Eff<R, ()> {
+    fn many(i: i64) -> Prog<(), R> {
         if i == 0 { pure(()) } else { emit::<i64, R, _>(1).flat_map(move |_| many(i - 1)) }
     }
     assert_eq!(drain(many(100_000).handle(generate()), 0).run(), 100_000);

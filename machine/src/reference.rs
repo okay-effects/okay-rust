@@ -11,7 +11,7 @@ use crate::Resume;
 use crate::eff::{rare, Frame, Kind, Node, Op, Rare, Val};
 use crate::effects::*;
 use crate::machine::{K0, Level, StatefulRt};
-use crate::{row, Eff, Handler, Step};
+use crate::{row, Prog, Handler, Step};
 
 // THE MEANING
 
@@ -126,7 +126,7 @@ fn stated(e: std::any::TypeId, rt: Rc<StatefulRt>, s: Rc<dyn std::any::Any>, n: 
 }
 
 /// a program with no effect left: its value
-fn value<A: 'static>(p: Eff<crate::Nil, A>) -> A {
+fn value<A: 'static>(p: Prog<A, crate::Nil>) -> A {
     match norm(p.node) {
         Norm::Done(v) => v.take::<A>(),
         Norm::Op(..) => panic!("an operation not handled"),
@@ -200,17 +200,17 @@ fn random(r: &mut Rand, depth: u32) -> Rc<P> {
 #[derive(Clone)]
 enum Kept {
     Value(i64),
-    Rest(Rc<dyn Fn(i64) -> Eff<R4, Kept>>),
+    Rest(Rc<dyn Fn(i64) -> Prog<Kept, R4>>),
 }
 
-fn drained(c: i64, kept: Kept) -> Eff<R4, i64> {
+fn drained(c: i64, kept: Kept) -> Prog<i64, R4> {
     match kept {
         Kept::Value(v) => crate::pure(v),
         Kept::Rest(k) => put::<i64, R4, _>(c).flat_map(move |_| k(c)).flat_map(move |next| drained(c + 1, next)),
     }
 }
 
-fn build(p: &Rc<P>) -> Eff<R4, i64> {
+fn build(p: &Rc<P>) -> Prog<i64, R4> {
     let b = |p: &Rc<P>| -> Rc<P> { p.clone() };
     match &**p {
         P::Pure(c) => crate::pure(*c),
@@ -241,7 +241,7 @@ fn build(p: &Rc<P>) -> Eff<R4, i64> {
         P::Attempt(body) => build(body).intercept(either()).map(|e: Result<i64, String>| e.unwrap_or_else(|s| s.len() as i64)),
         P::AskSt(c, twice, body) => {
             let (n, twice) = (*c, *twice);
-            build(body).intercept(Handler::deep(|a: i64| crate::pure(a * 2), move |op: Reader<i64>, k| match op {
+            build(body).intercept(Handler::new(|a: i64| crate::pure(a * 2), move |op: Reader<i64>, k| match op {
                 Reader::Ask(r) => get::<i64, R4, _>().flat_map(move |s| {
                     if twice {
                         let k2 = k.clone();
@@ -263,7 +263,7 @@ fn build(p: &Rc<P>) -> Eff<R4, i64> {
         P::Keep(c, body) => {
             let c = *c;
             build(body)
-                .intercept(Handler::deep(|a: i64| crate::pure(Kept::Value(a)), |op: Reader<i64>, k| match op {
+                .intercept(Handler::new(|a: i64| crate::pure(Kept::Value(a)), |op: Reader<i64>, k| match op {
                     Reader::Ask(r) => crate::pure(Kept::Rest(Rc::new(move |x| r.resume(&k, x)))),
                 }))
                 .flat_map(move |kept| drained(c, kept))
@@ -273,7 +273,7 @@ fn build(p: &Rc<P>) -> Eff<R4, i64> {
 
 type Answers = (i64, Vec<Result<i64, String>>);
 
-fn closed(p: &Rc<P>) -> Eff<crate::Nil, Answers> {
+fn closed(p: &Rc<P>) -> Prog<Answers, crate::Nil> {
     build(p).handle(either()).handle(all()).handle(state(1)).handle(reader(2))
 }
 
@@ -370,7 +370,7 @@ use crate::cont::{defer_c, dollar, pure_c, shift0, Passing};
 use crate::{Cons, Cont, Delim};
 
 type CR = row![Choose, Reader<i64>];
-type L = Eff<CR, i64>;
+type L = Prog<i64, CR>;
 /// a program under the `$` over `CR`, its answers `L`
 type B = Cont<Delim<CR>, L, L, i64>;
 type Q = Cons<Reader<i32>, Cons<State<i64>, Delim<CR>>>;
@@ -490,7 +490,7 @@ fn build_c(p: &Rc<C>) -> B {
         C::Under(how, c, u) => {
             let (c, c32) = (*c, *c as i32);
             fn reading<T>(c: i32) -> Passing<Reader<i32>, T, i64, i64> {
-                Passing::answering(move |op: Reader<i32>| match op { Reader::Ask(r) => r.give(c) }, |a| a)
+                Passing::in_place(move |op: Reader<i32>| match op { Reader::Ask(r) => r.give(c) }, |a| a)
             }
             fn stating<T>(c: i64) -> Passing<State<i64>, T, i64, (i64, i64)> {
                 Passing::stateful(c, |s: &mut i64, op: State<i64>| match op {
@@ -559,7 +559,7 @@ fn build_u(p: &Rc<U>) -> BQ {
     }
 }
 
-fn controlled(p: &Rc<C>) -> Eff<crate::Nil, Vec<i64>> {
+fn controlled(p: &Rc<C>) -> Prog<Vec<i64>, crate::Nil> {
     dollar(build_c(p), crate::pure).handle(all()).handle(reader(5))
 }
 

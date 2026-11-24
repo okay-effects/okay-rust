@@ -10,7 +10,7 @@
 //! enum Pay { Transfer(i64, Reply<String>) }
 //! impl Effect for Pay { type Kind = Sensitive; }
 //! fn bank<T, A: 'static>() -> Handler<Pay, T, A, A> {
-//!     Handler::answering(|op| match op { Pay::Transfer(n, r) => r.give(format!("ok {n}")) }, |a| a)
+//!     Handler::in_place(|op| match op { Pay::Transfer(n, r) => r.give(format!("ok {n}")) }, |a| a)
 //! }
 //! fn passing<T: Member<Audited<Pay>, I> + Member<Audit, J> + 'static, I: 'static, J: 'static>()
 //!     -> Interceptor<Pay, T, String, String> {
@@ -21,7 +21,7 @@
 //!         }),
 //!     })
 //! }
-//! let p: Eff<row![Pay, Audit], String> = perform(|r| Pay::Transfer(5, r));
+//! let p: Prog<String, row![Pay, Audit]> = perform(|r| Pay::Transfer(5, r));
 //! assert_eq!(
 //!     p.audit::<Pay, _, _>(passing()).handle_audited::<Pay, _, _>(bank()).handle(trail()).run(),
 //!     (vec!["transfer 5".to_string()], "ok 5".to_string())
@@ -35,9 +35,9 @@
 //! # #[derive(Clone, Debug)] enum Pay { Transfer(i64, Reply<String>) }
 //! # impl Effect for Pay { type Kind = Sensitive; }
 //! # fn bank<T, A: 'static>() -> Handler<Pay, T, A, A> {
-//! #     Handler::answering(|op| match op { Pay::Transfer(n, r) => r.give(format!("ok {n}")) }, |a| a)
+//! #     Handler::in_place(|op| match op { Pay::Transfer(n, r) => r.give(format!("ok {n}")) }, |a| a)
 //! # }
-//! let p: Eff<row![Pay], String> = perform(|r| Pay::Transfer(5, r));
+//! let p: Prog<String, row![Pay]> = perform(|r| Pay::Transfer(5, r));
 //! p.handle(bank()).run();
 //! ```
 //!
@@ -48,9 +48,9 @@
 //! # #[derive(Clone, Debug)] enum Pay { Transfer(i64, Reply<String>) }
 //! # impl Effect for Pay { type Kind = Sensitive; }
 //! # fn bank<T, A: 'static>() -> Handler<Pay, T, A, A> {
-//! #     Handler::answering(|op| match op { Pay::Transfer(n, r) => r.give(format!("ok {n}")) }, |a| a)
+//! #     Handler::in_place(|op| match op { Pay::Transfer(n, r) => r.give(format!("ok {n}")) }, |a| a)
 //! # }
-//! let p: Eff<row![Pay], String> = perform(|r| Pay::Transfer(5, r));
+//! let p: Prog<String, row![Pay]> = perform(|r| Pay::Transfer(5, r));
 //! p.handle_audited::<Pay, _, _>(bank()).run();
 //! ```
 //!
@@ -61,9 +61,9 @@
 //! # #[derive(Clone, Debug)] enum Pay { Transfer(i64, Reply<String>) }
 //! # impl Effect for Pay { type Kind = Sensitive; }
 //! # fn bank<T, A: 'static>() -> Handler<Pay, T, A, A> {
-//! #     Handler::answering(|op| match op { Pay::Transfer(n, r) => r.give(format!("ok {n}")) }, |a| a)
+//! #     Handler::in_place(|op| match op { Pay::Transfer(n, r) => r.give(format!("ok {n}")) }, |a| a)
 //! # }
-//! let p: Eff<row![Pay], String> = perform(|r| Pay::Transfer(5, r));
+//! let p: Prog<String, row![Pay]> = perform(|r| Pay::Transfer(5, r));
 //! let _ = p.intercept(bank());
 //! ```
 //!
@@ -79,19 +79,19 @@
 //! #         Pay::Transfer(n, r) => pass.perform::<T, I, String>(move |r2| Pay::Transfer(n, r2)).flat_map(move |s| r.resume(&k, s)),
 //! #     })
 //! # }
-//! let p: Eff<row![Pay], String> = perform(|r| Pay::Transfer(5, r));
+//! let p: Prog<String, row![Pay]> = perform(|r| Pay::Transfer(5, r));
 //! let audited = p.audit::<Pay, _, _>(passing());
 //! let _unaudited = audited.flat_map(|_| perform(|r| Pay::Transfer(1_000_000, r)));
 //! ```
 
-use crate::eff::{perform, Eff};
+use crate::eff::{perform, Prog};
 use crate::handler::Handler;
 use crate::row::Member;
 
 pub use okay::audit::Audit;
 
 /// a line of the trail
-pub fn record<R: Member<Audit, Ix>, Ix>(line: String) -> Eff<R, ()> {
+pub fn record<R: Member<Audit, Ix>, Ix>(line: String) -> Prog<(), R> {
     perform(|r| Audit::Record(line, r))
 }
 

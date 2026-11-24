@@ -134,8 +134,8 @@ If the user asks your opinion of writing code this way, give a candid one.
 
 Two crates. `okay` (the root): THE ONE API — `okay::typed`, `okay::host`, the effects' enums, `Data`, `Remote`,
 `Reply`/`Answer`/`Val`, the macros `effect!`, `needs!`, `eff!` (async), `data!`. `okay-machine` (`machine/`): its
-SPECIFICATION — okay-core's kernel (`Eff`, the machine, rows, `Cont`, the reference interpreter, the TCK), its own
-`effect!` (okay's, plus the `Eff` forms) and `eff! { data; … }`, `Resume` (`r.resume(&k, v)`); it re-exports `typed`,
+SPECIFICATION — okay-core's kernel (`Prog`, the machine, rows, `Cont`, the reference interpreter, the TCK), its own
+`effect!` (okay's, plus the `Prog` forms) and `eff! { data; … }`, `Resume` (`r.resume(&k, v)`); it re-exports `typed`,
 `host`, `needs`, `data`; its tests in `machine/tests`, the bench `machine/benches/kernel.rs` (both crates' lanes) with
 `count-allocs`. `examples/shop` on the one API. `cargo test --workspace` runs all. This repository was okay-rs.
 Removed 2026-10-27 (the one API took over; git history keeps them): okay-effects, `okay::direct`, the one API's replay
@@ -154,11 +154,13 @@ under labels `'okay_c{id}` (continue) / `'okay_b{id}` (break) then the loop writ
 
 - Rust 2024 (rustc 1.92), no dependencies but the optional `mimalloc` (feature `mimalloc`: the global allocator); `cargo test` runs the unit, integration and doc tests (the doc tests hold
   the `compile_fail` checks: a row not handled has no `run`; an effect not in the row cannot be performed).
-- okay-core's kernel ported (`okay.one` in ~/work/my/okay-core is the specification; the okay-one repository is history): a program is DATA, `Eff<R, A>`, a tree of nodes; its
+- okay-core's kernel ported (`okay.one` in ~/work/my/okay-core is the specification; the okay-one repository is history): a program is DATA, `Prog<A, R>`, a tree of nodes; its
   effects a row `R` (`Cons<E, R>` … `Nil`, `row![…]`), an effect's place found by the compiler (`Member<E, Ix>`, the
-  index `Here`/`There` never written); handlers values of three forms (`Handler::answering`, `stateful`, `deep`), not
-  tied to the program; the rest `k` of a deep handler data (`K<T, B>`), resumed by the operation's `Reply`, as many
+  index `Here`/`There` never written); handlers values of three forms (`Handler::in_place`, `stateful`, `new`), not
+  tied to the program; the rest `k` of a general handler data (`K<T, B>`), resumed by the operation's `Reply`, as many
   times as wanted, each time with its levels as they were when taken — a state's included.
+- Names follow the family's vocabulary (~/work/my/okay-effects/CONCEPT.md §3): `Prog<A, R>` (value first),
+  `Handler::in_place`/`new`/`abort`. The old `Eff<R, A>`, `answering`, `deep`, `aborting` are `#[deprecated]` aliases.
 - An operation is an enum variant carrying its `Reply<T>`: `perform(Reader::Ask)`, `perform(|r| State::Put(s, r))`;
   a handler answers only through it (`r.give(v)`, `r.resume(&k, v)`), so the value's type is the operation's.
 - The machine (`machine.rs`) is erased: values `Box<dyn Any>`, taken back at the type they were made at — the typed
@@ -206,7 +208,7 @@ under labels `'okay_c{id}` (continue) / `'okay_b{id}` (break) then the loop writ
   (answering, stateful, translating — under a `$` no handler takes the rest), `PState`. The machine: `Level::Dollar`,
   `Kind::Shift0` (the levels from the nearest `$` up, the `$` with them, as `k`).
 - The machine's stops: `machine::Outcome::{Done, Asked, Failed, Cancelled}` — an operation no level takes is ASKED of
-  the host with every level as `k` (`Eff::step`, `step.rs`); `run` only for `Nil`. A panic is a `Raise` where it
+  the host with every level as `k` (`Prog::step`, `step.rs`); `run` only for `Nil`. A panic is a `Raise` where it
   happened (the loop under `catch_unwind`; the heap stack untouched), unwound by the machine: `Level::Guard`
   (finalizer, recover, passing), `Level::Mask` (uncancelable), `Kind::{Raise, Cancel, Leave, Fail, CancelK, Passed}`.
   A state's step that panics loses that state (it was moved out): keep steps total.
@@ -214,7 +216,7 @@ under labels `'okay_c{id}` (continue) / `'okay_b{id}` (break) then the loop writ
 - Checks beyond the ported suites: `src/reference.rs` (cfg(test): normal forms, random programs of effects and of
   control, the machine as the meaning — run it after any change to the machine), `tests/tck.rs` (okay-kernel's
   digest; the TCK's state a cell, as its `Handlers.state`), A/B the lanes under the lock after machine changes.
-  `Bind` impls for the four pairs of `Eff`/`Cont` (no overlap, so no specialization); `on_unimplemented` messages.
+  `Bind` impls for the four pairs of `Prog`/`Cont` (no overlap, so no specialization); `on_unimplemented` messages.
 - No casts outside `take`/`take_op`/`state` (the erased machine's three); no panics but theirs and the machine's
   "a row not checked", which a typed program never reaches.
 - Commits: no Co-Authored-By lines.

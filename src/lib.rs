@@ -95,7 +95,7 @@ macro_rules! eff {
 
 /// AN EFFECT DECLARED: its enum (`Clone`, `Debug`, each operation's `Reply` last), its kind, and each operation — a
 /// function over a context (`transfer(cx, …)`, `okay::typed`); `wire`: its operations as data too (`Remote`). The
-/// machine's `okay_machine::effect!` writes the same and its program-as-data forms (`Pay::transfer(…)`, an `Eff`). An effect whose handlers may answer later — waiting on the world: `Step::Wait` — is declared so,
+/// machine's `okay_machine::effect!` writes the same and its program-as-data forms (`Pay::transfer(…)`, a `Prog`). An effect whose handlers may answer later — waiting on the world: `Step::Wait` — is declared so,
 /// `enum Net: Plain, waits { … }`: its operations keep the future they wait on (`typed::Waiting`)
 ///
 /// ```

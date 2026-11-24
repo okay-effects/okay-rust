@@ -1,6 +1,6 @@
 //! # okay-machine
 //!
-//! The SPECIFICATION of okay's one API (the `okay` crate): okay-core's kernel in Rust — a program of effects is DATA (`Eff<R, A>`, a tree of nodes), its effects a ROW (`R`, a list of
+//! The SPECIFICATION of okay's one API (the `okay` crate): okay-core's kernel in Rust — a program of effects is DATA (`Prog<A, R>`, a tree of nodes), its effects a ROW (`R`, a list of
 //! types), its handlers VALUES of three forms not tied to it (answering in place, with a state, taking the rest), the
 //! rest `k` data too — resumed as many times as a handler wants, each time as it was taken. A machine runs it.
 //!
@@ -9,7 +9,7 @@
 //! use okay_machine::effects::*;
 //!
 //! type R = row![Reader<i64>, State<i64>];
-//! let p: Eff<R, i64> = eff! { data;
+//! let p: Prog<i64, R> = eff! { data;
 //!     n <- ask::<i64, _, _>();
 //!     _ <- modify::<i64, _, _>(move |s| s + n);
 //!     s <- get::<i64, _, _>();
@@ -23,7 +23,7 @@
 //! ```compile_fail
 //! use okay_machine::*;
 //! use okay_machine::effects::*;
-//! let p: Eff<row![Reader<i64>], i64> = ask::<i64, _, _>();
+//! let p: Prog<i64, row![Reader<i64>]> = ask::<i64, _, _>();
 //! p.run();
 //! ```
 //!
@@ -32,7 +32,7 @@
 //! ```compile_fail
 //! use okay_machine::*;
 //! use okay_machine::effects::*;
-//! let p: Eff<row![Reader<i64>], i64> = get::<i64, _, _>();
+//! let p: Prog<i64, row![Reader<i64>]> = get::<i64, _, _>();
 //! ```
 
 pub mod audit;
@@ -53,7 +53,9 @@ pub mod wire;
 pub use okay as __okay;
 pub use okay::{data, host, needs, typed};
 
-pub use eff::{defer, perform, pure, tail_rec, Loop, Answer, AnyOp, Bind, Eff, Failure, Guard, Never, Node, Pass, PassingOut, Program, Reply, Resume};
+pub use eff::{defer, perform, pure, tail_rec, Loop, Answer, AnyOp, Bind, Prog, Failure, Guard, Never, Node, Pass, PassingOut, Program, Reply, Resume};
+#[allow(deprecated)]
+pub use eff::Eff;
 pub use step::{Step, Yield};
 pub use cont::{dollar, pure_c, Cont, Over, Passing, K1};
 pub use okay::{Data, IsData};
@@ -75,7 +77,7 @@ macro_rules! call {
 ///
 /// `eff! { … }` is the one API's (`okay_machine::eff!`, an `async` block).
 ///
-/// `eff! { data; … }` is a program as data (`Eff`, the machine): for a rest taken many times (`choose`). Its rests
+/// `eff! { data; … }` is a program as data (`Prog`, the machine): for a rest taken many times (`choose`). Its rests
 /// are closures called as many times as a handler resumes them: each takes copies (`clone`) of the names bound before
 /// it — so a name bound is `Clone`.
 #[macro_export]
@@ -111,7 +113,7 @@ macro_rules! eff {
 }
 
 /// AN EFFECT DECLARED: its enum (`Clone`, `Debug`, each operation's `Reply` last), its kind, and each operation twice —
-/// for a program as data (`Pay::transfer(…)`, an `Eff`) and for one compiled by its handlers' types (`transfer(cx, …)`,
+/// for a program as data (`Pay::transfer(…)`, a `Prog`) and for one compiled by its handlers' types (`transfer(cx, …)`,
 /// `okay_machine::typed`). An effect whose handlers may answer later — waiting on the world: `Step::Wait` — is declared so,
 /// `enum Net: Plain, waits { … }`: its operations keep the future they wait on (`typed::Waiting`)
 ///
@@ -142,7 +144,7 @@ macro_rules! eff {
 /// let cx = Cx(Counter(std::cell::Cell::new(0)), End);
 /// assert_eq!(run(eff! { add(&cx, 2); add(&cx, 3); now(&cx) }), Ok(5));
 ///
-/// let p: Eff<row![Count], i64> = eff! { data; Count::add(2); Count::now() };
+/// let p: Prog<i64, row![Count]> = eff! { data; Count::add(2); Count::now() };
 /// let counted = p.handle(Handler::stateful(0i64, |c: &mut i64, op| match op {
 ///     Count::Add(n, r) => { *c += n; r.give(*c) }
 ///     Count::Now(r) => r.give(*c),
@@ -170,7 +172,7 @@ macro_rules! effect {
             $(
                 $(#[$om])*
                 #[allow(clippy::too_many_arguments)]
-                $vis fn $f<OkayRow: $crate::Member<$name, OkayIx>, OkayIx>($($arg: $ty),*) -> $crate::Eff<OkayRow, $out> {
+                $vis fn $f<OkayRow: $crate::Member<$name, OkayIx>, OkayIx>($($arg: $ty),*) -> $crate::Prog<$out, OkayRow> {
                     $crate::perform(move |r| $name::$op($($arg,)* r))
                 }
             )*

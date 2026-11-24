@@ -66,30 +66,30 @@ impl Effect for Throws {
 
 // pure: isEven / isOdd over binds
 
-fn is_even_p(i: i64) -> Eff<Nil, bool> {
+fn is_even_p(i: i64) -> Prog<bool, Nil> {
     if i == 0 { pure(true) } else { pure::<Nil, ()>(()).flat_map(move |_| is_odd_p(i - 1)) }
 }
-fn is_odd_p(i: i64) -> Eff<Nil, bool> {
+fn is_odd_p(i: i64) -> Prog<bool, Nil> {
     if i == 0 { pure(false) } else { pure::<Nil, ()>(()).flat_map(move |_| is_even_p(i - 1)) }
 }
 
 // the ticking lanes
 
-fn is_even<R: Member<Tick, I> + 'static, I: 'static>(i: i64) -> Eff<R, bool> {
+fn is_even<R: Member<Tick, I> + 'static, I: 'static>(i: i64) -> Prog<bool, R> {
     if i == 0 { pure(true) } else { perform::<R, Tick, I, i64>(|r| Tick::Value(i, r)).flat_map(move |_| is_odd::<R, I>(i - 1)) }
 }
-fn is_odd<R: Member<Tick, I> + 'static, I: 'static>(i: i64) -> Eff<R, bool> {
+fn is_odd<R: Member<Tick, I> + 'static, I: 'static>(i: i64) -> Prog<bool, R> {
     if i == 0 { pure(false) } else { perform::<R, Tick, I, i64>(|r| Tick::Value(i, r)).flat_map(move |_| is_even::<R, I>(i - 1)) }
 }
 
 fn ticking<T, A: 'static>() -> Handler<Tick, T, A, A> {
-    Handler::answering(|op| match op { Tick::Value(a, r) => r.give(a) }, |a| a)
+    Handler::in_place(|op| match op { Tick::Value(a, r) => r.give(a) }, |a| a)
 }
 fn ticking_k<T: 'static, A: 'static>() -> Handler<Tick, T, A, A> {
-    Handler::deep(pure, |op, k| match op { Tick::Value(a, r) => r.resume(&k, a) })
+    Handler::new(pure, |op, k| match op { Tick::Value(a, r) => r.resume(&k, a) })
 }
 fn skipping<const I: usize, T, A: 'static>() -> Handler<Skip<I>, T, A, A> {
-    Handler::answering(|op: Skip<I>| op.1.give(op.0), |a| a)
+    Handler::in_place(|op: Skip<I>| op.1.give(op.0), |a| a)
 }
 
 type T1 = row![Tick];
@@ -118,23 +118,23 @@ fn forwarded_k16() -> bool { skip16!(is_even::<S16, _>(N)).handle(ticking_k()).r
 // reads
 
 type Rd = row![Ask];
-fn asks(i: i64, acc: i64) -> Eff<Rd, i64> {
+fn asks(i: i64, acc: i64) -> Prog<i64, Rd> {
     if i == 0 { pure(acc) } else { perform::<Rd, Ask, _, i64>(Ask::Get).flat_map(move |v| asks(i - 1, acc + v)) }
 }
 fn reads() -> i64 {
-    asks(N, 0).handle(Handler::answering(|op| match op { Ask::Get(r) => r.give(1) }, |a| a)).run()
+    asks(N, 0).handle(Handler::in_place(|op| match op { Ask::Get(r) => r.give(1) }, |a| a)).run()
 }
 
 // writer: the log in the handler, answered in place
 
 type Wr = row![Tell];
-fn telling(i: i64) -> Eff<Wr, ()> {
+fn telling(i: i64) -> Prog<(), Wr> {
     if i == 0 { pure(()) } else { perform::<Wr, Tell, _, ()>(|r| Tell::Put(i, r)).flat_map(move |_| telling(i - 1)) }
 }
 fn writer() -> usize {
     let log = Rc::new(RefCell::new(Vec::new()));
     let at_end = log.clone();
-    let h: Handler<Tell, Nil, (), (Vec<i64>, ())> = Handler::answering(
+    let h: Handler<Tell, Nil, (), (Vec<i64>, ())> = Handler::in_place(
         move |op| match op { Tell::Put(i, r) => { log.borrow_mut().push(i); r.give(()) } },
         move |a| (at_end.borrow().clone(), a),
     );
@@ -144,7 +144,7 @@ fn writer() -> usize {
 // state: in a cell, and a handler's state (each path of a k its own)
 
 type Sc = row![St];
-fn counting(i: i64) -> Eff<Sc, i64> {
+fn counting(i: i64) -> Prog<i64, Sc> {
     if i == 0 {
         perform::<Sc, St, _, i64>(St::Get)
     } else {
@@ -155,7 +155,7 @@ fn counting(i: i64) -> Eff<Sc, i64> {
 }
 fn state_cell() -> i64 {
     let s = Rc::new(Cell::new(0i64));
-    let h: Handler<St, Nil, i64, i64> = Handler::answering(
+    let h: Handler<St, Nil, i64, i64> = Handler::in_place(
         move |op| match op {
             St::Get(r) => r.give(s.get()),
             St::Put(i, r) => { s.set(i); r.give(()) }
@@ -173,7 +173,7 @@ fn counter<T, A: 'static>(s0: i64) -> Handler<St, T, A, (i64, A)> {
 fn state() -> i64 { counting(N).handle(counter(0)).run().0 }
 
 type Deep3 = row![St, Ask, Tell];
-fn counting_deep(i: i64) -> Eff<Deep3, i64> {
+fn counting_deep(i: i64) -> Prog<i64, Deep3> {
     if i == 0 {
         perform::<Deep3, St, _, i64>(St::Get)
     } else {
@@ -186,8 +186,8 @@ fn state_deep() -> i64 {
     let log = Rc::new(RefCell::new(Vec::<i64>::new()));
     let at_end = log.clone();
     let reader_at: Handler<Ask, row![Tell], (i64, i64), (i64, i64)> =
-        Handler::answering(|op| match op { Ask::Get(r) => r.give(0) }, |a| a);
-    let writer_at: Handler<Tell, Nil, (i64, i64), (Vec<i64>, (i64, i64))> = Handler::answering(
+        Handler::in_place(|op| match op { Ask::Get(r) => r.give(0) }, |a| a);
+    let writer_at: Handler<Tell, Nil, (i64, i64), (Vec<i64>, (i64, i64))> = Handler::in_place(
         move |op| match op { Tell::Put(i, r) => { log.borrow_mut().push(i); r.give(()) } },
         move |a| (at_end.borrow().clone(), a),
     );
@@ -197,13 +197,13 @@ fn state_deep() -> i64 {
 // maps
 
 fn left_maps() -> i64 {
-    let mut p: Eff<Nil, i64> = pure(0);
+    let mut p: Prog<i64, Nil> = pure(0);
     for _ in 0..N {
         p = p.map(|x| x + 1);
     }
     p.run()
 }
-fn right_mapping(i: i64) -> Eff<Nil, i64> {
+fn right_mapping(i: i64) -> Prog<i64, Nil> {
     if i == 0 { pure(0) } else { defer(move || right_mapping(i - 1)).map(|x| x + 1) }
 }
 fn right_maps() -> i64 { right_mapping(N).run() }
@@ -212,14 +212,14 @@ fn right_maps() -> i64 { right_mapping(N).run() }
 
 type Th = row![Throws];
 fn catching() -> Handler<Throws, Nil, i64, Result<i64, String>> {
-    Handler::aborting(|a| pure(Ok(a)), |op| match op { Throws::Raise(e, _) => pure(Err(e)) })
+    Handler::abort(|a| pure(Ok(a)), |op| match op { Throws::Raise(e, _) => pure(Err(e)) })
 }
 /// the same, a handler dropping `k` by hand
 fn catching_k() -> Handler<Throws, Nil, i64, Result<i64, String>> {
-    Handler::deep(|a| pure(Ok(a)), |op, _k| match op { Throws::Raise(e, _) => pure(Err(e)) })
+    Handler::new(|a| pure(Ok(a)), |op, _k| match op { Throws::Raise(e, _) => pure(Err(e)) })
 }
-fn raising(i: i64, acc: i64) -> Eff<Nil, i64> { raising_by(catching, i, acc) }
-fn raising_by(h: fn() -> Handler<Throws, Nil, i64, Result<i64, String>>, i: i64, acc: i64) -> Eff<Nil, i64> {
+fn raising(i: i64, acc: i64) -> Prog<i64, Nil> { raising_by(catching, i, acc) }
+fn raising_by(h: fn() -> Handler<Throws, Nil, i64, Result<i64, String>>, i: i64, acc: i64) -> Prog<i64, Nil> {
     if i == 0 {
         pure(acc)
     } else {

@@ -1,7 +1,7 @@
 # okay-machine
 
 The SPECIFICATION of okay's one API (the `okay` crate, [../README.md](../README.md)): okay-core's kernel (`okay.one`) in
-Rust: a program of effects is DATA (`Eff<R, A>`, a tree of nodes), its effects a ROW of types, its handlers VALUES of
+Rust: a program of effects is DATA (`Prog<A, R>`, a tree of nodes), its effects a ROW of types, its handlers VALUES of
 three forms not tied to it, the rest `k` data too — resumed any number of times, each time as it was taken — and
 INTERCEPTORS for control and audit: a sensitive effect handled only under its audit, the types refusing anything else;
 an observer of every operation of every effect.
@@ -11,7 +11,7 @@ use okay_machine::*;
 use okay_machine::effects::*;
 
 type R = row![Reader<i64>, State<i64>];
-let p: Eff<R, i64> = eff! { data;
+let p: Prog<i64, R> = eff! { data;
     n <- ask::<i64, _, _>();
     _ <- modify::<i64, _, _>(move |s| s + n);
     s <- get::<i64, _, _>();
@@ -62,8 +62,8 @@ impl<S: Clone + Debug + 'static> Effect for State<S> {
     type Kind = Plain;
 }
 
-pub fn get<S: Clone + Debug + 'static, R: Member<State<S>, Ix>, Ix>() -> Eff<R, S> { perform(State::Get) }
-pub fn put<S: Clone + Debug + 'static, R: Member<State<S>, Ix>, Ix>(s: S) -> Eff<R, ()> {
+pub fn get<S: Clone + Debug + 'static, R: Member<State<S>, Ix>, Ix>() -> Prog<S, R> { perform(State::Get) }
+pub fn put<S: Clone + Debug + 'static, R: Member<State<S>, Ix>, Ix>(s: S) -> Prog<(), R> {
     perform(|r| State::Put(s, r))
 }
 ```
@@ -79,8 +79,8 @@ The standard effects (`okay_machine::effects`): `Reader<V>` (`ask`, `reader`), `
 
 ## Programs and `eff!`
 
-`Eff<R, A>`: a program of value `A` over the row `R`. `pure(a)`, `perform(…)`, `p.flat_map(f)`, `p.map(f)`,
-`p.handle(h)`, `p.run()` (only for `Eff<Nil, A>`: every effect handled).
+`Prog<A, R>`: a program of value `A` over the row `R`. `pure(a)`, `perform(…)`, `p.flat_map(f)`, `p.map(f)`,
+`p.handle(h)`, `p.run()` (only for `Prog<A, Nil>`: every effect handled).
 
 `eff! { data; … }` is a for over programs as data (`eff! { … }` without `data;` is the `async` form, see
 [One API](#one-api-compiled-by-the-handlers-type-okaytyped)): `x <- p;` binds, `_ <- p;` or `p;` drops, `let x = v;` names, the last line a program
@@ -100,12 +100,12 @@ program's recursion runs on the machine's own stack, on the heap, instead — tw
   `Loop::Done(a)`. Mutual recursion is a loop whose state names the function and its arguments.
 
 ```rust
-fn is_even(i: i64) -> Eff<Nil, bool> { if i == 0 { pure(true) } else { call!(is_odd(i - 1)) } }
-fn is_odd(i: i64) -> Eff<Nil, bool> { if i == 0 { pure(false) } else { call!(is_even(i - 1)) } }
+fn is_even(i: i64) -> Prog<bool, Nil> { if i == 0 { pure(true) } else { call!(is_odd(i - 1)) } }
+fn is_odd(i: i64) -> Prog<bool, Nil> { if i == 0 { pure(false) } else { call!(is_even(i - 1)) } }
 assert!(is_even(1_000_000).run());
 
 // an effect at each step: a million operations of a state
-fn even_counted(i: i64) -> Eff<row![State<i64>], bool> {
+fn even_counted(i: i64) -> Prog<bool, row![State<i64>]> {
     if i == 0 { pure(true) } else { eff! { data; modify::<i64, _, _>(|s| s + 1); call!(odd_counted(i - 1)) } }
 }
 
@@ -126,16 +126,20 @@ with and without an effect at each, and a loop under a choice, each path its own
 
 Three forms, each over the row `T` outside it, of the body's `A` to its own `B`:
 
-- `Handler::answering(value, ret)` — each operation its value at once, in place; nothing taken;
+- `Handler::in_place(value, ret)` — each operation its value at once, in place; nothing taken;
 - `Handler::stateful(s0, step, ret)` — a state `S`, each operation its value and the state moved, in place. Taken
   into a rest, the state as it was then: each resumption its own (a choice's paths, each its state);
-- `Handler::deep(ret, apply)` — each operation its clause, given the rest `k: K<T, B>`, data: resumed none, once or
+- `Handler::new(ret, apply)` — each operation its clause, given the rest `k: K<T, B>`, data: resumed none, once or
   many times, kept, by the operation's `Reply`;
-- `Handler::aborting(ret, abort)` — the rest dropped, no `k` made (an error, an early answer);
+- `Handler::abort(ret, abort)` — the rest dropped, no `k` made (an error, an early answer);
 - `Handler::translating(apply)` — each operation a program over the row outside, `r.give(x)` at its end; a failure
   in it raised where the operation was, so the body's own `recover` sees it.
 
 `p.handle(h)` takes a PLAIN effect off wherever it is in the row.
+
+The names are the okay-effects family's (its CONCEPT §3): `Prog<A, R>` a program, value first; `in_place`, `new`
+(general), `abort`. The earlier `Eff<R, A>`, `Handler::answering`, `deep`, `aborting` and `Passing::answering` stay,
+deprecated.
 
 ## The machine
 
@@ -227,9 +231,9 @@ translating). printf, the answer `String` turned `i64 -> String`:
 ```rust
 use okay_machine::cont::shift0;
 type S = Rc<dyn Fn(i64) -> String>;
-let body: Cont<Reset, Eff<Nil, String>, Eff<Nil, S>, i64> =
-    shift0::<Reset, Nil, _, i64, Eff<Nil, String>, Eff<Nil, S>>(|k| pure(Rc::new(move |x| k(x).run()) as S));
-let p: Eff<Nil, S> = dollar(body.map(|n| n.to_string()), |s| pure(format!("Hello {s}")));
+let body: Cont<Reset, Prog<String, Nil>, Prog<S, Nil>, i64> =
+    shift0::<Reset, Nil, _, i64, Prog<String, Nil>, Prog<S, Nil>>(|k| pure(Rc::new(move |x| k(x).run()) as S));
+let p: Prog<S, Nil> = dollar(body.map(|n| n.to_string()), |s| pure(format!("Hello {s}")));
 assert_eq!(p.run()(42), "Hello 42");
 ```
 
@@ -264,7 +268,7 @@ Checked by `compile_fail` doc tests (`src/lib.rs`, `src/audit.rs`), each failing
 
 | refused | the compiler's message |
 |---|---|
-| `run` with an effect not handled | no method `run` for `Eff<Cons<…>, _>` |
+| `run` with an effect not handled | no method `run` for `Prog<_, Cons<…>>` |
 | an operation of an effect not in the row | the effect `State<i64>` is not in the row … |
 | a sensitive effect by `handle`, or `intercept` | a sensitive effect is handled only under its audit — audit it first, then `handle_audited` |
 | `handle_audited` with no audit before it | `Member<Audited<Pay>, _>` not satisfied |
@@ -291,7 +295,7 @@ JMH's lock). µs per run of the program:
 | `pure` — isEven/isOdd, 1000 binds | 3.08 | 20.34 | 8.50 | 2.8× |
 | `answered` — an operation answered in place, each step | 5.58 | 37.21 | 10.81 | 1.9× |
 | `forwarded` / `forwarded16` — past 1 / 16 handlers | 5.53 / 5.83 | 37.71 / 47.31 | 11.04 / 12.43 | 2.0× / 2.1× |
-| `general` — a `deep` handler, `k` each step | 9.44 | 85.57 | 36.87 | 3.9× |
+| `general` — a general handler (`Handler::new`), `k` each step | 9.44 | 85.57 | 36.87 | 3.9× |
 | `forwardedK` / `forwardedK16` | 20.28 / 139.80 | 88.10 / 190.64 | 38.73 / 78.91 | 1.9× / **0.56×** |
 | `reads` / `writer` | 3.15 / 9.45 | 29.16 / 30.61 | 10.14 / 11.66 | 3.2× / 1.2× |
 | `stateCell` / `state` / `stateDeep` | 9.34 / 12.47 / 12.02 | 71.66 / 80.03 / 74.24 | 35.48 / 42.63 / 42.92 | 3.4–3.8× |
@@ -313,7 +317,7 @@ each step measured, the ones that lost reverted:
    moved behind an `Rc` there, once — so a closure is never cloned, and need not be `Clone`.
 5. **One-shot `k` moved back**: a rest resumed by its last holder (a handler resuming once — most) puts its levels
    back as they are, nothing copied; copies, frames shared, only when it is resumed again.
-6. **`Handler::aborting`**: a handler dropping the rest (okay-core's `Aborting`; `either()` is one) truncates the
+6. **`Handler::abort`**: a handler dropping the rest (okay-core's `Aborting`; `either()` is one) truncates the
    levels, no `k` made.
 7. **A pool of level vectors**: the vector of a rest resumed once goes back to a pool for the next rest taken —
    `choose` −11%, `general` −12%, `forwardedK` −14% (`answered`, `forwarded`, `writer` +7–8%: the loop's code laid out

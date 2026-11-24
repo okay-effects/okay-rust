@@ -80,7 +80,7 @@ fn writer_value(log: Vec<i32>, v: i32) -> i32 {
     v.wrapping_mul(100).wrapping_add(log.iter().fold(0i32, |s, w| s.wrapping_add(*w)))
 }
 
-fn build(t: &Rc<T>) -> Eff<R, i32> {
+fn build(t: &Rc<T>) -> Prog<i32, R> {
     match &**t {
         T::Pure(n) => pure(*n),
         T::Tell(0, n) => { let n = *n; tell::<i64, R, _>(n as i64).map(move |_| n) }
@@ -110,14 +110,14 @@ fn build(t: &Rc<T>) -> Eff<R, i32> {
 fn cell<S: Copy + std::fmt::Debug + 'static>(s0: S) -> Handler<State<S>, R, i32, (S, i32)> {
     let s = Rc::new(std::cell::Cell::new(s0));
     let at_end = s.clone();
-    Handler::answering(move |op: State<S>| match op {
+    Handler::in_place(move |op: State<S>| match op {
         State::Get(r) => r.give(s.get()),
         State::Put(n, r) => { s.set(n); r.give(()) }
     }, move |v| (at_end.get(), v))
 }
 
 /// a program of the row closed: its effects' handlers outside, never reached (every operation is the wrapper's)
-fn closed(p: Eff<R, i32>) -> i32 {
+fn closed(p: Prog<i32, R>) -> i32 {
     p.handle(collect::<i32, _, i32>()).map(|(_, v)| v)
         .handle(collect::<i64, _, i32>()).map(|(_, v)| v)
         .handle(state::<i32, _, i32>(0)).map(|(_, v)| v)

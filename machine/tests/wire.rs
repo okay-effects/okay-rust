@@ -29,7 +29,7 @@ fn every_path(w: Wire) -> Vec<Data> {
 #[test]
 fn multi_shot_across_the_wire_every_branch_of_two_choices() {
     type R = row![Choose];
-    let pairs: Eff<R, i64> = eff! { data;
+    let pairs: Prog<i64, R> = eff! { data;
         x <- among(vec![1i64, 2]);
         y <- among(vec![10i64, 20]);
         yield x + y
@@ -41,7 +41,7 @@ fn multi_shot_across_the_wire_every_branch_of_two_choices() {
 #[test]
 fn an_effect_declared_wire_crosses_by_its_functions_names() {
     type R = row![Shop];
-    let total: Eff<R, f64> = eff! { data;
+    let total: Prog<f64, R> = eff! { data;
         p <- Shop::price_of("tea".to_string());
         Shop::discount(p * 3.0)
     };
@@ -71,7 +71,7 @@ fn an_effect_declared_wire_crosses_by_its_functions_names() {
 #[test]
 fn a_failure_from_the_far_side_is_raised_at_the_operation() {
     type R = row![Shop];
-    let p: Eff<R, f64> = Shop::price_of("x".to_string());
+    let p: Prog<f64, R> = Shop::price_of("x".to_string());
     let Wire::Perform { k, .. } = program(p.step(), &Remotes::new().with::<Shop>()) else { panic!() };
     assert!(matches!(k(Err("no such sku".into())), Wire::Failed(m) if m == "no such sku"));
     assert!(matches!(k(Ok(Data::Str("not a number".into()))), Wire::Failed(m) if m.contains("expected a number")));
@@ -80,7 +80,7 @@ fn a_failure_from_the_far_side_is_raised_at_the_operation() {
 #[test]
 fn an_effect_not_declared_to_cross_is_refused_by_name() {
     type R = row![Reader<i64>];
-    let p: Eff<R, i64> = ask::<i64, R, _>();
+    let p: Prog<i64, R> = ask::<i64, R, _>();
     assert!(matches!(program(p.step(), &Remotes::new()), Wire::Failed(m) if m.contains("does not cross the wire")));
 }
 

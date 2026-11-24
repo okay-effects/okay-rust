@@ -19,12 +19,12 @@ impl Effect for Pay {
     type Kind = Sensitive;
 }
 
-fn transfer<R: Member<Pay, I>, I>(to: &str, amount: i64) -> Eff<R, String> {
+fn transfer<R: Member<Pay, I>, I>(to: &str, amount: i64) -> Prog<String, R> {
     let to = to.to_string();
     perform(|r| Pay::Transfer(to, amount, r))
 }
 
-fn balance<R: Member<Pay, I>, I>() -> Eff<R, i64> {
+fn balance<R: Member<Pay, I>, I>() -> Prog<i64, R> {
     perform(Pay::Balance)
 }
 
@@ -82,7 +82,7 @@ type Payments = row![Pay, Throws<String>, Audit];
 /// "a sensitive effect under its audit: passed on changed, told masked, refused over the limit"
 #[test]
 fn a_sensitive_effect_under_its_audit_passed_on_changed_told_masked_refused_over_the_limit() {
-    let p: Eff<Payments, i64> = eff! { data;
+    let p: Prog<i64, Payments> = eff! { data;
         a <- transfer(" acct-1234 ", 100);
         b <- balance();
         _ <- transfer("acct-77", 5000);
@@ -111,11 +111,11 @@ fn a_sensitive_effect_under_its_audit_passed_on_changed_told_masked_refused_over
 fn a_plain_effect_intercepted_for_a_part_of_the_program() {
     type R = row![Writer<String>];
     fn shouting<A: 'static>() -> Handler<Writer<String>, R, A, A> {
-        Handler::deep(pure, |op: Writer<String>, k| match op {
+        Handler::new(pure, |op: Writer<String>, k| match op {
             Writer::Tell(s, r) => tell::<String, R, _>(s.to_uppercase()).flat_map(move |_| r.resume(&k, ())),
         })
     }
-    let p: Eff<R, ()> = eff! { data;
+    let p: Prog<(), R> = eff! { data;
         tell("a".to_string());
         tell::<String, R, _>("b".to_string()).intercept(shouting())
     };
@@ -134,7 +134,7 @@ fn telling<T: Member<Audit, I> + 'static, I: 'static, A: 'static>() -> Observer<
 #[test]
 fn an_observer_sees_every_operation_of_every_effect_and_its_answer() {
     type R = row![Reader<i64>, State<i64>, Pay, Audit];
-    let p: Eff<R, String> = eff! { data;
+    let p: Prog<String, R> = eff! { data;
         n <- ask::<i64, _, _>();
         _ <- modify::<i64, _, _>(move |s| s + n);
         s <- get::<i64, _, _>();
@@ -179,7 +179,7 @@ fn an_observer_refusing_a_sensitive_effect_a_read_only_run() {
             }
         })
     }
-    let p: Eff<R, String> = eff! { data;
+    let p: Prog<String, R> = eff! { data;
         n <- ask::<i64, _, _>();
         transfer("acct", n)
     };
@@ -198,7 +198,7 @@ fn an_observer_refusing_a_sensitive_effect_a_read_only_run() {
 #[test]
 fn an_answer_told_each_time_the_rest_gets_it() {
     type R = row![Choose, Audit];
-    let p: Eff<R, bool> = flip();
+    let p: Prog<bool, R> = flip();
     let (trail, paths) = p.observe(telling()).handle(all()).handle(trail()).run();
     assert_eq!(paths, vec![true, false]);
     assert_eq!(trail, vec!["Choose Among(2, _)", "  → 0", "  → 1"]);

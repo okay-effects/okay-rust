@@ -29,11 +29,11 @@ fn a_throw_in_a_map_under_a_state_failed_run_rethrows() {
 #[test]
 fn a_throw_in_each_kind_of_user_code() {
     type R = row![Reader<i64>];
-    let in_bind = ask::<i64, R, _>().flat_map(|_| -> Eff<R, i64> { panic!("boom") }).handle(reader(1));
-    let in_value = ask::<i64, R, _>().handle(Handler::answering(|_: Reader<i64>| -> Answer { panic!("boom") }, |a| a));
+    let in_bind = ask::<i64, R, _>().flat_map(|_| -> Prog<i64, R> { panic!("boom") }).handle(reader(1));
+    let in_value = ask::<i64, R, _>().handle(Handler::in_place(|_: Reader<i64>| -> Answer { panic!("boom") }, |a| a));
     let in_clause =
-        ask::<i64, R, _>().handle(Handler::deep(pure, |_: Reader<i64>, _| -> Eff<Nil, i64> { panic!("boom") }));
-    let in_ret = ask::<i64, R, _>().handle(Handler::answering(|op: Reader<i64>| match op { Reader::Ask(r) => r.give(1) },
+        ask::<i64, R, _>().handle(Handler::new(pure, |_: Reader<i64>, _| -> Prog<i64, Nil> { panic!("boom") }));
+    let in_ret = ask::<i64, R, _>().handle(Handler::in_place(|op: Reader<i64>| match op { Reader::Ask(r) => r.give(1) },
         |_: i64| -> i64 { panic!("boom") }));
     let in_defer = defer::<Nil, i64>(|| panic!("boom"));
     for p in [in_bind, in_value, in_clause, in_ret, in_defer] {
@@ -65,7 +65,7 @@ fn a_step_failed_by_its_driver() {
 #[test]
 fn stack_safe_a_throw_under_many_binds_unwound() {
     type R = row![Reader<i64>];
-    fn deep(i: i64) -> Eff<R, i64> {
+    fn deep(i: i64) -> Prog<i64, R> {
         if i == 0 { pure(0).map(|_: i64| -> i64 { panic!("boom") }) } else { defer(move || deep(i - 1)).map(|n| n + 1) }
     }
     assert_eq!(failed(deep(100_000).handle(reader(1)).step()), "boom");

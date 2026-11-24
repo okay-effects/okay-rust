@@ -7,7 +7,7 @@ use okay_machine::*;
 #[test]
 fn reader_state_writer_throws_each_by_its_handler_any_order_of_the_row() {
     type R = row![Reader<i64>, State<i64>, Writer<String>, Throws<String>];
-    fn p() -> Eff<R, i64> {
+    fn p() -> Prog<i64, R> {
         eff! { data;
             n <- ask::<i64, _, _>();
             _ <- modify::<i64, _, _>(move |s| s + n);
@@ -32,7 +32,7 @@ fn reader_state_writer_throws_each_by_its_handler_any_order_of_the_row() {
 #[test]
 fn choose_every_path_the_state_threaded() {
     type R = row![Choose, State<i64>];
-    let p: Eff<R, (bool, i64)> = eff! { data;
+    let p: Prog<(bool, i64), R> = eff! { data;
         b <- flip();
         i <- among(vec![1i64, 2]);
         _ <- modify::<i64, _, _>(move |s| s + i);

@@ -13,7 +13,7 @@ type Log = Rc<RefCell<Vec<String>>>;
 
 /// a writer telling into a cell: what was told survives the level a failure drops
 fn cell<T, A: 'static>(log: Log) -> Handler<Writer<String>, T, A, A> {
-    Handler::answering(move |op: Writer<String>| match op {
+    Handler::in_place(move |op: Writer<String>| match op {
         Writer::Tell(w, r) => {
             log.borrow_mut().push(w);
             r.give(())
@@ -28,7 +28,7 @@ fn failed<Q, A: std::fmt::Debug + 'static>(s: Step<Q, A>) -> String {
     }
 }
 
-fn says<R: Member<Writer<String>, Ix> + 'static, Ix: 'static>(s: &'static str) -> impl Fn() -> Eff<R, ()> + 'static {
+fn says<R: Member<Writer<String>, Ix> + 'static, Ix: 'static>(s: &'static str) -> impl Fn() -> Prog<(), R> + 'static {
     move || tell::<String, R, Ix>(s.to_string())
 }
 
@@ -36,7 +36,7 @@ fn says<R: Member<Writer<String>, Ix> + 'static, Ix: 'static>(s: &'static str) -
 fn a_translations_failure_raised_where_the_operation_was_a_recover_in_the_body_sees_it() {
     type R = row![Writer<String>];
     let failing = Handler::translating(|_: Writer<String>| defer::<Nil, Answer>(|| panic!("boom")));
-    let body: Eff<R, i64> = tell::<String, R, _>("x".into()).map(|_| 1).recover(|e| pure(if e.message() == "boom" { 7 } else { 0 }));
+    let body: Prog<i64, R> = tell::<String, R, _>("x".into()).map(|_| 1).recover(|e| pure(if e.message() == "boom" { 7 } else { 0 }));
     assert_eq!(body.handle(failing).run(), 7);
 }
 
@@ -62,7 +62,7 @@ fn a_panic_in_an_answering_handlers_value_the_finalizer_runs_the_panic_reaches_t
     type R = row![Writer<String>];
     let log: Log = Rc::default();
     let l = log.clone();
-    let parking = Handler::answering(move |op: Writer<String>| match op {
+    let parking = Handler::in_place(move |op: Writer<String>| match op {
         Writer::Tell(w, r) => {
             if w == "park" {
                 std::panic::panic_any(String::from("cancelled"));
@@ -245,12 +245,12 @@ fn ensure_under_a_dollar_a_shift0_passes_the_guard_k_resumed_twice_runs_the_fina
     use okay_machine::cont::shift0;
     type W = row![Writer<String>];
     type Q = Delim<W>;
-    let body: Cont<Q, Eff<W, i64>, Eff<W, i64>, i64> = shift0::<Q, W, _, i64, Eff<W, i64>, Eff<W, i64>>(|k| {
+    let body: Cont<Q, Prog<i64, W>, Prog<i64, W>, i64> = shift0::<Q, W, _, i64, Prog<i64, W>, Prog<i64, W>>(|k| {
         let k2 = k.clone();
         k(1).flat_map(move |a| k2(2).map(move |b| a + b))
     })
     .flat_map(|x| tell::<String, Q, _>(format!("got {x}")).cont().map(move |_| x * 10));
-    let p: Eff<W, i64> = dollar(body.ensure(|| tell::<String, Q, _>("fin".into())), pure);
+    let p: Prog<i64, W> = dollar(body.ensure(|| tell::<String, Q, _>("fin".into())), pure);
     assert_eq!(p.handle(collect()).run(), (vec!["got 1".into(), "fin".into(), "got 2".into(), "fin".into()], 30));
 }
 
@@ -260,9 +260,9 @@ fn ensure_under_a_dollar_and_a_panic_in_the_rest_the_finalizer_the_error_out() {
     type W = row![Writer<String>];
     type Q = Delim<W>;
     let log: Log = Rc::default();
-    let body: Cont<Q, Eff<W, i64>, Eff<W, i64>, i64> = shift0::<Q, W, _, i64, Eff<W, i64>, Eff<W, i64>>(|k| k(1))
+    let body: Cont<Q, Prog<i64, W>, Prog<i64, W>, i64> = shift0::<Q, W, _, i64, Prog<i64, W>, Prog<i64, W>>(|k| k(1))
         .flat_map(|x| tell::<String, Q, _>("rest".into()).cont().map(move |_| if x == 1 { panic!("boom") } else { x }));
-    let p: Eff<W, i64> = dollar(body.ensure(|| tell::<String, Q, _>("fin".into())), pure);
+    let p: Prog<i64, W> = dollar(body.ensure(|| tell::<String, Q, _>("fin".into())), pure);
     assert_eq!(failed(p.handle(cell(log.clone())).step()), "boom");
     assert_eq!(*log.borrow(), vec!["rest", "fin"]);
 }
@@ -272,7 +272,7 @@ fn uncancelable_under_a_dollar_the_mask_held_through_the_shift0_the_finalizer_ru
     use okay_machine::cont::shift0;
     type W = row![Writer<String>];
     type Q = Delim<W>;
-    let body: Cont<Q, Eff<W, i64>, Eff<W, i64>, i64> = shift0::<Q, W, _, i64, Eff<W, i64>, Eff<W, i64>>(|k| {
+    let body: Cont<Q, Prog<i64, W>, Prog<i64, W>, i64> = shift0::<Q, W, _, i64, Prog<i64, W>, Prog<i64, W>>(|k| {
         let k2 = k.clone();
         k(1).flat_map(move |a| k2(2).map(move |b| a + b))
     })

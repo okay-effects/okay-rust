@@ -44,7 +44,7 @@
 //! ```
 //! use okay_machine::*; use okay_machine::effects::*;
 //! fn ask_logged<T: Member<Writer<String>, Ix> + 'static, Ix: 'static>(v: i64) -> Handler<Reader<i64>, T, i64, i64> {
-//!     Handler::deep(pure, move |op, k| match op {
+//!     Handler::new(pure, move |op, k| match op {
 //!         Reader::Ask(r) => tell::<String, T, Ix>("asked".into()).flat_map(move |_| r.resume(&k, v)),
 //!     })
 //! }
@@ -54,7 +54,7 @@
 //! ```compile_fail
 //! use okay_machine::*; use okay_machine::effects::*;
 //! fn ask_logged<T: Member<Writer<String>, Ix> + 'static, Ix: 'static>(v: i64) -> Handler<Reader<i64>, T, i64, i64> {
-//!     Handler::deep(pure, move |op, k| match op {
+//!     Handler::new(pure, move |op, k| match op {
 //!         Reader::Ask(r) => tell::<String, T, Ix>("asked".into()).flat_map(move |_| r.resume(&k, v)),
 //!     })
 //! }
@@ -67,14 +67,14 @@
 //! ```
 //! use okay_machine::*; use okay_machine::effects::*;
 //! type T = row![Writer<String>];
-//! let _: Handler<Reader<i64>, T, i64, i64> = Handler::deep(pure, |op, k| match op {
+//! let _: Handler<Reader<i64>, T, i64, i64> = Handler::new(pure, |op, k| match op {
 //!     Reader::Ask(r) => tell::<String, T, _>(String::new()).flat_map(move |_| r.resume(&k, 1)),
 //! });
 //! ```
 //! ```compile_fail
 //! use okay_machine::*; use okay_machine::effects::*;
 //! type T = row![Writer<String>];
-//! let _: Handler<Reader<i64>, T, i64, i64> = Handler::deep(pure, |op, k| match op {
+//! let _: Handler<Reader<i64>, T, i64, i64> = Handler::new(pure, |op, k| match op {
 //!     Reader::Ask(r) => ask::<i64, T, _>().flat_map(move |n| r.resume(&k, n)),
 //! });
 //! ```

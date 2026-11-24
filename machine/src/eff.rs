@@ -1,4 +1,4 @@
-//! A PROGRAM OF EFFECTS, `Eff<R, A>`: of the value `A`, its effects the row `R` — data, a tree of nodes the machine
+//! A PROGRAM OF EFFECTS, `Prog<A, R>`: of the value `A`, its effects the row `R` — data, a tree of nodes the machine
 //! runs. The types only the compiler's: the nodes hold values erased (`Box<dyn Any>`), each taken back at the type it
 //! was made at, which the typed API makes the only one possible.
 
@@ -139,15 +139,19 @@ fn copy_as<T: Clone + 'static>(v: &Val) -> Val {
     }
 }
 
-/// A PROGRAM OF EFFECTS over the row `R`, of the value `A`
-pub struct Eff<R, A> {
+/// A PROGRAM OF EFFECTS of the value `A`, over the row `R` (value first, as the family's `Prog<A, R>`)
+pub struct Prog<A, R> {
     pub(crate) node: Node,
     _t: PhantomData<fn() -> (R, A)>,
 }
 
-impl<R, A> Eff<R, A> {
+/// The old name of [`Prog`], row first
+#[deprecated(note = "the family's name is `Prog<A, R>`, value first")]
+pub type Eff<R, A> = Prog<A, R>;
+
+impl<R, A> Prog<A, R> {
     pub(crate) fn of(kind: Kind) -> Self {
-        Eff { node: Node(kind), _t: PhantomData }
+        Prog { node: Node(kind), _t: PhantomData }
     }
 }
 
@@ -159,25 +163,25 @@ pub trait Program: Sized {
     fn from_node(n: Node) -> Self;
 }
 
-impl<R, A> Program for Eff<R, A> {
+impl<R, A> Program for Prog<A, R> {
     fn into_node(self) -> Node {
         self.node
     }
     fn from_node(n: Node) -> Self {
-        Eff { node: n, _t: PhantomData }
+        Prog { node: n, _t: PhantomData }
     }
 }
 
 /// THE ANSWERS MET at a bind, by the kind of the rest: a program of effects after a program of effects, one of
 /// effects. (Stage 2: a program moving the answer, `Cont`, each of the four pairs its own impl — none overlapping,
-/// as `Eff` and `Cont` are types of their own.)
+/// as `Prog` and `Cont` are types of their own.)
 #[diagnostic::on_unimplemented(message = "a `{Self}` cannot be followed by a `{N}`: the rows or the answers do not meet")]
 pub trait Bind<N> {
     type Out: Program;
 }
 
-impl<R, A, B> Bind<Eff<R, B>> for Eff<R, A> {
-    type Out = Eff<R, B>;
+impl<R, A, B> Bind<Prog<B, R>> for Prog<A, R> {
+    type Out = Prog<B, R>;
 }
 
 /// a program, then `frame`: a value or an operation fused with it, no node made for them
@@ -191,13 +195,13 @@ fn bound(k: Kind, frame: Frame) -> Kind {
 }
 
 /// `a`, over any row
-pub fn pure<R, A: 'static>(a: A) -> Eff<R, A> {
-    Eff::of(Kind::Return(Val::new(a)))
+pub fn pure<R, A: 'static>(a: A) -> Prog<A, R> {
+    Prog::of(Kind::Return(Val::new(a)))
 }
 
 /// `p`, made when the run gets to it: a recursion built lazily
-pub fn defer<R: 'static, A: 'static>(p: impl Fn() -> Eff<R, A> + 'static) -> Eff<R, A> {
-    Eff::of(Kind::Defer(Rc::new(move || p().node)))
+pub fn defer<R: 'static, A: 'static>(p: impl Fn() -> Prog<A, R> + 'static) -> Prog<A, R> {
+    Prog::of(Kind::Defer(Rc::new(move || p().node)))
 }
 
 /// A LOOP IN CONSTANT STACK (cats' `tailRecM`): `step` from a state to a program of the next step — `Next(s)` on,
@@ -205,13 +209,13 @@ pub fn defer<R: 'static, A: 'static>(p: impl Fn() -> Eff<R, A> + 'static) -> Eff
 /// (`enum Call { Even(i64), Odd(i64) }`); the step's program may perform any effect of its row
 pub fn tail_rec<R: 'static, S: 'static, A: 'static>(
     s0: S,
-    step: impl Fn(S) -> Eff<R, Loop<S, A>> + 'static,
-) -> Eff<R, A> {
+    step: impl Fn(S) -> Prog<Loop<S, A>, R> + 'static,
+) -> Prog<A, R> {
     looping(s0, Rc::new(step))
 }
 
 #[allow(clippy::type_complexity)]
-fn looping<R: 'static, S: 'static, A: 'static>(s: S, step: Rc<dyn Fn(S) -> Eff<R, Loop<S, A>>>) -> Eff<R, A> {
+fn looping<R: 'static, S: 'static, A: 'static>(s: S, step: Rc<dyn Fn(S) -> Prog<Loop<S, A>, R>>) -> Prog<A, R> {
     let on = step.clone();
     step(s).flat_map(move |l| match l {
         Loop::Next(s) => looping(s, on.clone()),
@@ -222,14 +226,14 @@ fn looping<R: 'static, S: 'static, A: 'static>(s: S, step: Rc<dyn Fn(S) -> Eff<R
 /// AN OPERATION of `E`, in the row `R`: `make` its variant given its reply — `perform(Reader::Ask)`, `perform(|r|
 /// State::Put(s, r))`; the program's value what its handler gives back. The value `Clone` and `Debug`: what crosses
 /// the boundary of effects can be told and kept
-pub fn perform<R, E: Effect, Ix, T: Clone + Debug + 'static>(make: impl FnOnce(Reply<T>) -> E) -> Eff<R, T>
+pub fn perform<R, E: Effect, Ix, T: Clone + Debug + 'static>(make: impl FnOnce(Reply<T>) -> E) -> Prog<T, R>
 where
     R: Member<E, Ix>,
 {
-    Eff::of(Kind::Perform(Op::of::<E, T>(make(Reply::new()))))
+    Prog::of(Kind::Perform(Op::of::<E, T>(make(Reply::new()))))
 }
 
-impl<R, A: 'static> Eff<R, A> {
+impl<R, A: 'static> Prog<A, R> {
     /// `f` given the value: its program the rest — at the answers met (`Bind`)
     pub fn flat_map<N: Program, F>(self, f: F) -> <Self as Bind<N>>::Out
     where
@@ -241,39 +245,39 @@ impl<R, A: 'static> Eff<R, A> {
     }
 
     /// `f` of the value
-    pub fn map<B: 'static>(self, f: impl Fn(A) -> B + 'static) -> Eff<R, B> {
+    pub fn map<B: 'static>(self, f: impl Fn(A) -> B + 'static) -> Prog<B, R> {
         let frame = Frame::new(move |v: Val| Node(Kind::Return(Val::new(f(v.take::<A>())))));
-        Eff::of(bound(self.node.0, frame))
+        Prog::of(bound(self.node.0, frame))
     }
 
     /// a PLAIN effect `E` handled by `h`, wherever it is in the row: the row without it, `T`, the handler's
-    pub fn handle<E: Effect, Ix, B: 'static>(self, h: Handler<E, R::Rest, A, B>) -> Eff<R::Rest, B>
+    pub fn handle<E: Effect, Ix, B: 'static>(self, h: Handler<E, R::Rest, A, B>) -> Prog<B, R::Rest>
     where
         E::Kind: PlainKind,
         R: Member<E, Ix>,
     {
-        Eff::of(Kind::Handle(Box::new(self.node), h.level))
+        Prog::of(Kind::Handle(Box::new(self.node), h.level))
     }
 
     /// a SENSITIVE effect handled — only under its audit: `Audited<S>` in the row, put there by `audit` or `observe`
     pub fn handle_audited<S: Effect<Kind = Sensitive>, Ix, B: 'static>(
         self,
         h: Handler<S, R::Rest, A, B>,
-    ) -> Eff<R::Rest, B>
+    ) -> Prog<B, R::Rest>
     where
         R: Member<Audited<S>, Ix>,
     {
-        Eff::of(Kind::Handle(Box::new(self.node), h.level))
+        Prog::of(Kind::Handle(Box::new(self.node), h.level))
     }
 
     /// a PLAIN effect INTERCEPTED for this program: its operations to `h`'s clauses, which run outside it — their own
     /// operations of `E` reach the handler further out. The row the same
-    pub fn intercept<E: Effect, Ix, B: 'static>(self, h: Handler<E, R, A, B>) -> Eff<R, B>
+    pub fn intercept<E: Effect, Ix, B: 'static>(self, h: Handler<E, R, A, B>) -> Prog<B, R>
     where
         E::Kind: PlainKind,
         R: Member<E, Ix>,
     {
-        Eff::of(Kind::Handle(Box::new(self.node), h.level))
+        Prog::of(Kind::Handle(Box::new(self.node), h.level))
     }
 
     /// a SENSITIVE effect AUDITED: its operations to `i`'s clauses — each passed on (`Pass`), changed, or refused;
@@ -281,27 +285,27 @@ impl<R, A: 'static> Eff<R, A> {
     pub fn audit<S: Effect<Kind = Sensitive>, Ix, B: 'static>(
         self,
         i: Interceptor<S, <R as Mark<S, Ix>>::Out, A, B>,
-    ) -> Eff<<R as Mark<S, Ix>>::Out, B>
+    ) -> Prog<B, <R as Mark<S, Ix>>::Out>
     where
         R: Mark<S, Ix>,
     {
-        Eff::of(Kind::Handle(Box::new(self.node), i.level))
+        Prog::of(Kind::Handle(Box::new(self.node), i.level))
     }
 
     /// every operation OBSERVED on its way out, whatever its effect: `o`'s clause given it — told, passed on or
     /// refused. Outside, every sensitive effect of the row audited
-    pub fn observe<B: 'static>(self, o: Observer<<R as AuditAll>::Out, A, B>) -> Eff<<R as AuditAll>::Out, B>
+    pub fn observe<B: 'static>(self, o: Observer<<R as AuditAll>::Out, A, B>) -> Prog<B, <R as AuditAll>::Out>
     where
         R: AuditAll,
     {
-        Eff::of(Kind::Handle(Box::new(self.node), o.level))
+        Prog::of(Kind::Handle(Box::new(self.node), o.level))
     }
 }
 
-impl<R, A: 'static> Eff<R, A> {
+impl<R, A: 'static> Prog<A, R> {
     /// ENSURING: `fin` run when this program is left — with its value (kept), a failure (raised on after it), an abort
     /// past it, a cancel. Under a rest resumed twice, twice
-    pub fn ensure(self, fin: impl Fn() -> Eff<R, ()> + 'static) -> Eff<R, A>
+    pub fn ensure(self, fin: impl Fn() -> Prog<(), R> + 'static) -> Prog<A, R>
     where
         A: Clone,
     {
@@ -311,41 +315,41 @@ impl<R, A: 'static> Eff<R, A> {
             passing: None,
             copy: copy_as::<A>,
         };
-        Eff::of(Kind::Handle(Box::new(self.node), crate::machine::Level::Guard(Rc::new(g))))
+        Prog::of(Kind::Handle(Box::new(self.node), crate::machine::Level::Guard(Rc::new(g))))
     }
 
     /// RECOVERING: a failure raised in this program — user code's panic, a host's `fail` — given to `f`, its program in
     /// place of this one's. Not an effect's raise (`Throws`): that is its handler's
-    pub fn recover(self, f: impl Fn(Failure) -> Eff<R, A> + 'static) -> Eff<R, A> {
+    pub fn recover(self, f: impl Fn(Failure) -> Prog<A, R> + 'static) -> Prog<A, R> {
         let g = crate::machine::GuardRt {
             finalizer: None,
             recover: Some(Box::new(move |e| f(e).node)),
             passing: None,
             copy: no_copy,
         };
-        Eff::of(Kind::Handle(Box::new(self.node), crate::machine::Level::Guard(Rc::new(g))))
+        Prog::of(Kind::Handle(Box::new(self.node), crate::machine::Level::Guard(Rc::new(g))))
     }
 
     /// UNCANCELABLE: a cancel asked inside waits for this program to be left
-    pub fn uncancelable(self) -> Eff<R, A> {
-        Eff::of(Kind::Handle(Box::new(self.node), crate::machine::Level::Mask(Rc::new(std::cell::Cell::new(false)))))
+    pub fn uncancelable(self) -> Prog<A, R> {
+        Prog::of(Kind::Handle(Box::new(self.node), crate::machine::Level::Mask(Rc::new(std::cell::Cell::new(false)))))
     }
 
     /// GUARDED by `g`: its finalizer when left, its passing told of each operation going out
-    pub fn guard(self, g: Guard<R, A>) -> Eff<R, A>
+    pub fn guard(self, g: Guard<R, A>) -> Prog<A, R>
     where
         A: Clone,
     {
         let rt = crate::machine::GuardRt { finalizer: g.finalizer, recover: None, passing: g.passing, copy: copy_as::<A> };
-        Eff::of(Kind::Handle(Box::new(self.node), crate::machine::Level::Guard(Rc::new(rt))))
+        Prog::of(Kind::Handle(Box::new(self.node), crate::machine::Level::Guard(Rc::new(rt))))
     }
 }
 
-impl<R, A> Eff<R, A> {
+impl<R, A> Prog<A, R> {
     /// the same program over the row with `E` first: it performs none of `E`, so it is one of that row too (an
     /// operation finds its handler by its effect, not by its place)
-    pub fn widen<E>(self) -> Eff<crate::row::Cons<E, R>, A> {
-        Eff::of(self.node.0)
+    pub fn widen<E>(self) -> Prog<A, crate::row::Cons<E, R>> {
+        Prog::of(self.node.0)
     }
 }
 
@@ -376,7 +380,7 @@ impl<R, A> Guard<R, A> {
     }
 
     /// run when the program under it is left
-    pub fn finalizer(mut self, fin: impl Fn() -> Eff<R, ()> + 'static) -> Self {
+    pub fn finalizer(mut self, fin: impl Fn() -> Prog<(), R> + 'static) -> Self {
         self.finalizer = Some(Rc::new(move || fin().node));
         self
     }
@@ -392,7 +396,7 @@ impl<R, A> Guard<R, A> {
     }
 }
 
-impl<A: 'static> Eff<Nil, A> {
+impl<A: 'static> Prog<A, Nil> {
     /// the value: a program of no effect run
     pub fn run(self) -> A {
         crate::machine::run(self.node).take::<A>()
@@ -459,10 +463,10 @@ impl AnyOp {
     }
 
     /// passed on, to the handler further out: its answer to the rest `k`
-    pub fn proceed<T, B>(self, k: &crate::handler::K<T, B>) -> Eff<T, B> {
+    pub fn proceed<T, B>(self, k: &crate::handler::K<T, B>) -> Prog<B, T> {
         let k0 = k.k.clone();
         let frame = Frame::new(move |v: Val| Node(Kind::Resume(k0.clone(), v)));
-        Eff::of(Kind::Inject(self.0, frame))
+        Prog::of(Kind::Inject(self.0, frame))
     }
 
     /// passed on, its answer told to `after` — a program run before the rest gets it, each time it gets it (a rest
@@ -470,8 +474,8 @@ impl AnyOp {
     pub fn proceed_then<T: 'static, B>(
         self,
         k: &crate::handler::K<T, B>,
-        after: impl Fn(String) -> Eff<T, ()> + 'static,
-    ) -> Eff<T, B> {
+        after: impl Fn(String) -> Prog<(), T> + 'static,
+    ) -> Prog<B, T> {
         let k0 = k.k.clone();
         let describe = self.0.info.describe_answer;
         let copy = self.0.info.copy_answer;
@@ -483,7 +487,7 @@ impl AnyOp {
             let back = Frame::new(move |_| Node(Kind::Resume(k0.clone(), copy(&v))));
             Node(bound(told.0, back))
         });
-        Eff::of(Kind::Inject(self.0, frame))
+        Prog::of(Kind::Inject(self.0, frame))
     }
 }
 
@@ -505,23 +509,23 @@ impl<S: Effect> Pass<S> {
     }
 
     /// an operation of `S` performed past the audit — the one asked, or another
-    pub fn perform<T, Ix, X: Clone + Debug + 'static>(self, make: impl FnOnce(Reply<X>) -> S) -> Eff<T, X>
+    pub fn perform<T, Ix, X: Clone + Debug + 'static>(self, make: impl FnOnce(Reply<X>) -> S) -> Prog<X, T>
     where
         T: Member<Audited<S>, Ix>,
     {
-        Eff::of(Kind::Perform(Op::of::<S, X>(make(Reply::new()))))
+        Prog::of(Kind::Perform(Op::of::<S, X>(make(Reply::new()))))
     }
 }
 
 /// THE REST RESUMED by an operation's reply: `r.resume(&k, t)` — a program over the row outside the handler, of its
 /// answer (the machine's: its rest is data, resumed as many times as a handler wants)
 pub trait Resume<T> {
-    fn resume<R, B>(self, k: &crate::handler::K<R, B>, t: T) -> Eff<R, B>;
+    fn resume<R, B>(self, k: &crate::handler::K<R, B>, t: T) -> Prog<B, R>;
 }
 
 impl<T: 'static> Resume<T> for Reply<T> {
-    fn resume<R, B>(self, k: &crate::handler::K<R, B>, t: T) -> Eff<R, B> {
-        Eff::of(Kind::Resume(k.k.clone(), Val::new(t)))
+    fn resume<R, B>(self, k: &crate::handler::K<R, B>, t: T) -> Prog<B, R> {
+        Prog::of(Kind::Resume(k.k.clone(), Val::new(t)))
     }
 }
 

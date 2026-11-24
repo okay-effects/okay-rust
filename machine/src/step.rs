@@ -7,7 +7,7 @@ use std::fmt::{self, Debug};
 use std::marker::PhantomData;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use crate::eff::{short, Answer, Eff, Failure, Op};
+use crate::eff::{short, Answer, Prog, Failure, Op};
 use crate::machine::{self, Outcome, K0};
 use crate::row::Effect;
 
@@ -120,7 +120,7 @@ fn guarded<R, A: 'static>(go: impl FnOnce() -> Outcome) -> Step<R, A> {
     }
 }
 
-impl<R, A: 'static> Eff<R, A> {
+impl<R, A: 'static> Prog<A, R> {
     /// the program STEPPED: run until its value, a failure, or its first operation of the row outside it
     pub fn step(self) -> Step<R, A> {
         let node = self.node;

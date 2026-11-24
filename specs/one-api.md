@@ -16,7 +16,7 @@ compiles to is chosen by the CONTEXT the caller gives, never by the program:
 The guarantee holds in every one: a `Sensitive` effect enters a context only under its audit (`Allowed`, sealed) —
 a `Dyn` layer too, since the context's TYPE stays static even when its interceptors are not.
 
-## The machine (`Eff`)
+## The machine (`Prog`)
 
 Not a user API any more. It stays as:
 - the SPECIFICATION — the reference interpreter, the TCK digest, okay-core's suites; typed programs are checked

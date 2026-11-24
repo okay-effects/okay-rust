@@ -31,7 +31,7 @@ fn drive<A: 'static, Q>(mut s: Step<Q, A>, n: i64) -> (Vec<String>, A) {
 /// "each operation given back, the rest resumed with its value"
 #[test]
 fn each_operation_given_back_the_rest_resumed_with_its_value() {
-    let p: Eff<R, i64> = eff! { data;
+    let p: Prog<i64, R> = eff! { data;
         a <- ask::<i64, _, _>();
         _ <- tell::<String, _, _>(format!("a {a}"));
         b <- ask::<i64, _, _>();
@@ -44,7 +44,7 @@ fn each_operation_given_back_the_rest_resumed_with_its_value() {
 #[test]
 fn handlers_in_the_program_theirs_answered_in_it_the_others_given_back_past_them() {
     type Q = row![Choose, State<i64>, Reader<i64>, Writer<String>];
-    let p: Eff<Q, i64> = eff! { data;
+    let p: Prog<i64, Q> = eff! { data;
         b <- flip();
         s <- get::<i64, _, _>();
         n <- ask::<i64, _, _>();
@@ -59,7 +59,7 @@ fn handlers_in_the_program_theirs_answered_in_it_the_others_given_back_past_them
 /// "a step resumed twice: each its own rest"
 #[test]
 fn a_step_resumed_twice_each_its_own_rest() {
-    let p: Eff<R, i64> = ask::<i64, R, _>().map(|n| n * 2);
+    let p: Prog<i64, R> = ask::<i64, R, _>().map(|n| n * 2);
     let Step::Yield(y) = p.step() else { panic!("not a step") };
     let Some(Reader::Ask(r)) = y.op::<Reader<i64>>() else { panic!("not an Ask") };
     assert_eq!(drive(y.resume(r.give(1)), 0).1, 2);
@@ -69,7 +69,7 @@ fn a_step_resumed_twice_each_its_own_rest() {
 /// "stack safe: a loop of operations stepped"
 #[test]
 fn stack_safe_a_loop_of_operations_stepped() {
-    fn lp(i: i64, acc: i64) -> Eff<R, i64> {
+    fn lp(i: i64, acc: i64) -> Prog<i64, R> {
         if i == 0 { pure(acc) } else { ask::<i64, R, _>().flat_map(move |n| lp(i - 1, acc + n)) }
     }
     assert_eq!(drive(lp(100_000, 0).step(), 1).1, 100_000);
@@ -78,7 +78,7 @@ fn stack_safe_a_loop_of_operations_stepped() {
 /// a host CANCELS: the rest dropped, never resumed
 #[test]
 fn a_host_cancels() {
-    let p: Eff<R, i64> = ask::<i64, R, _>();
+    let p: Prog<i64, R> = ask::<i64, R, _>();
     let Step::Yield(y) = p.step() else { panic!() };
     assert!(matches!(y.cancel(), Step::Cancelled));
 }

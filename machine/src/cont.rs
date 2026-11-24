@@ -2,7 +2,7 @@
 //! shift0 and `$`, Asai–Kameyama's typing): a program of `A` under a `$` over a row with `Control` in it, `I` the
 //! answer its rest gives, `O` the answer it makes. A shift0 takes the rest up to the nearest `$` — the `$` with it —
 //! as `k`, a function to a program outside; its body's answer, a program outside too, is the `$`'s. A program of
-//! effects (`Eff`, no answers of its own) meets one of control at any answers: `flat_map` lifts it.
+//! effects (`Prog`, no answers of its own) meets one of control at any answers: `flat_map` lifts it.
 //!
 //! WHAT THE TYPES REFUSE (okay-core's TestGuarantees on control, TestPState, TestAtmUses), each beside one taken:
 //!
@@ -10,13 +10,13 @@
 //!
 //! ```
 //! use okay_machine::*; use okay_machine::cont::shift0;
-//! let _: Cont<Reset, Eff<Nil, i64>, Eff<Nil, i64>, i64> = shift0::<Reset, Nil, _, i64, Eff<Nil, i64>, Eff<Nil, i64>>(|k| k(1));
+//! let _: Cont<Reset, Prog<i64, Nil>, Prog<i64, Nil>, i64> = shift0::<Reset, Nil, _, i64, Prog<i64, Nil>, Prog<i64, Nil>>(|k| k(1));
 //! ```
 //! ```compile_fail
 //! use okay_machine::*; use okay_machine::cont::shift0; use okay_machine::effects::*;
 //! // no `$` in the row
-//! let _: Cont<row![Reader<i64>], Eff<Nil, i64>, Eff<Nil, i64>, i64> =
-//!     shift0::<row![Reader<i64>], Nil, _, i64, Eff<Nil, i64>, Eff<Nil, i64>>(|k| k(1));
+//! let _: Cont<row![Reader<i64>], Prog<i64, Nil>, Prog<i64, Nil>, i64> =
+//!     shift0::<row![Reader<i64>], Nil, _, i64, Prog<i64, Nil>, Prog<i64, Nil>>(|k| k(1));
 //! ```
 //!
 //! **A pstate: a `get` of the wrong type does not compile — the answer types do not meet.**
@@ -77,7 +77,7 @@
 use std::marker::PhantomData;
 use std::rc::Rc;
 
-use crate::eff::{rare, Bind, Eff, Frame, Kind, Node, Program, Rare, Val};
+use crate::eff::{rare, Bind, Prog, Frame, Kind, Node, Program, Rare, Val};
 use crate::handler::Handler;
 use crate::machine::Level;
 use crate::row::{Delim, Effect, Member, Nearest, PlainKind};
@@ -108,7 +108,7 @@ impl<R, I, O, A> Program for Cont<R, I, O, A> {
 
 /// a program over the row `T`: of effects or of control — what a shift0's `k` gives and what a `$` answers
 pub trait Over<T>: Program {}
-impl<T, A> Over<T> for Eff<T, A> {}
+impl<T, A> Over<T> for Prog<A, T> {}
 impl<T, I, O, A> Over<T> for Cont<T, I, O, A> {}
 
 // THE ANSWERS MET at a bind: control after control — the first's rest the second; a program of effects either side
@@ -118,11 +118,11 @@ impl<R, T, O, X, I, A> Bind<Cont<R, I, T, A>> for Cont<R, T, O, X> {
     type Out = Cont<R, I, O, A>;
 }
 
-impl<R, A, I, O, B> Bind<Cont<R, I, O, B>> for Eff<R, A> {
+impl<R, A, I, O, B> Bind<Cont<R, I, O, B>> for Prog<A, R> {
     type Out = Cont<R, I, O, B>;
 }
 
-impl<R, T, O, X, B> Bind<Eff<R, B>> for Cont<R, T, O, X> {
+impl<R, T, O, X, B> Bind<Prog<B, R>> for Cont<R, T, O, X> {
     type Out = Cont<R, T, O, B>;
 }
 
@@ -136,7 +136,7 @@ pub fn pure_c<R, S, A: 'static>(a: A) -> Cont<R, S, S, A> {
     Cont::of(Kind::Return(Val::new(a)))
 }
 
-impl<R, A: 'static> Eff<R, A> {
+impl<R, A: 'static> Prog<A, R> {
     /// a program of effects as one of control, at the answers `S` of its place
     pub fn cont<S>(self) -> Cont<R, S, S, A> {
         Cont::of(self.node.0)
@@ -174,7 +174,7 @@ impl<R, I, O, A: 'static> Cont<R, I, O, A> {
 impl<R, I, O, A: 'static> Cont<R, I, O, A> {
     /// ENSURING under a `$`: `fin` run when this program is left — a shift0 passes the guard, so a `k` resumed twice
     /// runs it twice
-    pub fn ensure(self, fin: impl Fn() -> Eff<R, ()> + 'static) -> Cont<R, I, O, A>
+    pub fn ensure(self, fin: impl Fn() -> Prog<(), R> + 'static) -> Cont<R, I, O, A>
     where
         A: Clone,
     {
@@ -197,8 +197,13 @@ impl<R, I, O, A: 'static> Cont<R, I, O, A> {
 pub struct Passing<E, T, A, B>(Handler<E, T, A, B>);
 
 impl<E: Effect, T, A: 'static, B: 'static> Passing<E, T, A, B> {
+    pub fn in_place(value: impl Fn(E) -> crate::Answer + 'static, ret: impl Fn(A) -> B + 'static) -> Self {
+        Passing(Handler::in_place(value, ret))
+    }
+    /// the old name of [`Passing::in_place`]
+    #[deprecated(note = "the family's name is `Passing::in_place`")]
     pub fn answering(value: impl Fn(E) -> crate::Answer + 'static, ret: impl Fn(A) -> B + 'static) -> Self {
-        Passing(Handler::answering(value, ret))
+        Self::in_place(value, ret)
     }
     pub fn stateful<S: Clone + 'static>(
         s0: S,
@@ -210,7 +215,7 @@ impl<E: Effect, T, A: 'static, B: 'static> Passing<E, T, A, B> {
 }
 
 impl<E: Effect, T, A: 'static> Passing<E, T, A, A> {
-    pub fn translating(apply: impl Fn(E) -> Eff<T, crate::Answer> + 'static) -> Self {
+    pub fn translating(apply: impl Fn(E) -> Prog<crate::Answer, T> + 'static) -> Self {
         Passing(Handler::translating(apply))
     }
 }
@@ -248,7 +253,7 @@ where
 }
 
 /// A RESET over `T`: a `$` whose answer is the body's value, as a program of effects over `T`
-pub fn reset<T: 'static, S: 'static>(body: Cont<Delim<T>, Eff<T, S>, Eff<T, S>, S>) -> Eff<T, S> {
+pub fn reset<T: 'static, S: 'static>(body: Cont<Delim<T>, Prog<S, T>, Prog<S, T>, S>) -> Prog<S, T> {
     dollar(body, crate::pure)
 }
 
@@ -259,10 +264,10 @@ pub fn reset<T: 'static, S: 'static>(body: Cont<Delim<T>, Eff<T, S>, Eff<T, S>, 
 pub struct PState<R, F>(PhantomData<fn() -> (R, F)>);
 
 /// the rest of the run given the state `S`: a program of the run's value `F`
-pub type At<R, S, F> = Rc<dyn Fn(S) -> Eff<R, F>>;
+pub type At<R, S, F> = Rc<dyn Fn(S) -> Prog<F, R>>;
 
 /// a program answering the rest of the run at the state `S`
-pub type P<R, S, F> = Eff<R, At<R, S, F>>;
+pub type P<R, S, F> = Prog<At<R, S, F>, R>;
 
 // the answers in these types are the point: a state's type before and after each step
 #[allow(clippy::type_complexity)]
@@ -300,7 +305,7 @@ pub fn state<R, F>() -> PState<R, F> {
 pub fn pstate<R: 'static, S0: Clone + 'static, S1: 'static, W: Clone + 'static>(
     s0: S0,
     body: impl FnOnce(&PState<R, (S1, W)>) -> Cont<Delim<R>, P<R, S1, (S1, W)>, P<R, S0, (S1, W)>, W>,
-) -> Eff<R, (S1, W)> {
+) -> Prog<(S1, W), R> {
     let st = PState(PhantomData);
     let ran: P<R, S0, (S1, W)> = dollar(body(&st), |w: W| {
         crate::pure(Rc::new(move |s1: S1| crate::pure((s1, w.clone()))) as At<R, S1, (S1, W)>)

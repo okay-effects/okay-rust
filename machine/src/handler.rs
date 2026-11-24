@@ -1,12 +1,12 @@
 //! HANDLERS, values of three forms, each over the row `T` outside it, of the body's value `A` to its own `B` — as
-//! okay-one's: answering in place (`answering`), with a state (`stateful`), taking the rest (`deep`). Typed here,
+//! okay-one's: in place (`in_place`), with a state (`stateful`), general, taking the rest (`new`). Typed here,
 //! erased into a level of the machine.
 
 use std::any::{Any, TypeId};
 use std::marker::PhantomData;
 use std::rc::Rc;
 
-use crate::eff::{Answer, AnyOp, Eff, Node, Op, Pass, Val};
+use crate::eff::{Answer, AnyOp, Prog, Node, Op, Pass, Val};
 use crate::machine::{AbortingRt, AnsweringRt, DeepRt, K0, Level, ObserveRt, StatefulRt};
 use crate::row::Effect;
 
@@ -34,7 +34,7 @@ impl<T, B> Clone for K<T, B> {
 
 impl<E: Effect, T, A: 'static, B: 'static> Handler<E, T, A, B> {
     /// ANSWERING IN PLACE: each operation its value at once, the rest never taken; `ret` of the body's value
-    pub fn answering(value: impl Fn(E) -> Answer + 'static, ret: impl Fn(A) -> B + 'static) -> Self {
+    pub fn in_place(value: impl Fn(E) -> Answer + 'static, ret: impl Fn(A) -> B + 'static) -> Self {
         let rt = AnsweringRt {
             value: Box::new(move |op: Val| value(op.take::<E>()).0),
             ret: Box::new(move |v: Val| Val::new(ret(v.take::<A>()))),
@@ -66,7 +66,7 @@ impl<E: Effect, T, A: 'static, B: 'static> Handler<E, T, A, B> {
 
     /// DROPPING THE REST: each operation's program in place of the body's — the rest never taken, no `k` made (an
     /// error, an early answer); `ret` of the body's value
-    pub fn aborting(ret: impl Fn(A) -> Eff<T, B> + 'static, abort: impl Fn(E) -> Eff<T, B> + 'static) -> Self {
+    pub fn abort(ret: impl Fn(A) -> Prog<B, T> + 'static, abort: impl Fn(E) -> Prog<B, T> + 'static) -> Self {
         let rt = AbortingRt {
             ret: Box::new(move |v: Val| ret(v.take::<A>()).node),
             abort: Box::new(move |op: Val| abort(op.take::<E>()).node),
@@ -76,9 +76,9 @@ impl<E: Effect, T, A: 'static, B: 'static> Handler<E, T, A, B> {
 
     /// TAKING THE REST: each operation its clause, given the rest `k` — resumed none, once or many times, by the
     /// operation's `Reply`; the clause a program over the row outside. `ret` of the body's value
-    pub fn deep(
-        ret: impl Fn(A) -> Eff<T, B> + 'static,
-        apply: impl Fn(E, K<T, B>) -> Eff<T, B> + 'static,
+    pub fn new(
+        ret: impl Fn(A) -> Prog<B, T> + 'static,
+        apply: impl Fn(E, K<T, B>) -> Prog<B, T> + 'static,
     ) -> Self {
         let rt = DeepRt {
             ret: Box::new(move |v: Val| ret(v.take::<A>()).node),
@@ -88,13 +88,34 @@ impl<E: Effect, T, A: 'static, B: 'static> Handler<E, T, A, B> {
         };
         Handler { level: Level::Deep(TypeId::of::<E>(), Rc::new(rt)), _t: PhantomData }
     }
+
+    /// the old name of [`Handler::in_place`]
+    #[deprecated(note = "the family's name is `Handler::in_place`")]
+    pub fn answering(value: impl Fn(E) -> Answer + 'static, ret: impl Fn(A) -> B + 'static) -> Self {
+        Self::in_place(value, ret)
+    }
+
+    /// the old name of [`Handler::abort`]
+    #[deprecated(note = "the family's name is `Handler::abort`")]
+    pub fn aborting(ret: impl Fn(A) -> Prog<B, T> + 'static, abort: impl Fn(E) -> Prog<B, T> + 'static) -> Self {
+        Self::abort(ret, abort)
+    }
+
+    /// the old name of [`Handler::new`] (the general handler)
+    #[deprecated(note = "the family's name is `Handler::new`")]
+    pub fn deep(
+        ret: impl Fn(A) -> Prog<B, T> + 'static,
+        apply: impl Fn(E, K<T, B>) -> Prog<B, T> + 'static,
+    ) -> Self {
+        Self::new(ret, apply)
+    }
 }
 
 impl<E: Effect, T, A: 'static> Handler<E, T, A, A> {
     /// TRANSLATING: each operation answered by a program over the row outside (`r.give(x)` at its end) — the rest
     /// resumed once with it; a failure in that program raised where the operation was, inside the body, so the body's
     /// own recover sees it
-    pub fn translating(apply: impl Fn(E) -> Eff<T, Answer> + 'static) -> Self {
+    pub fn translating(apply: impl Fn(E) -> Prog<Answer, T> + 'static) -> Self {
         let rt = DeepRt {
             ret: Box::new(|v: Val| Node(crate::eff::Kind::Return(v))),
             apply: Box::new(move |op: Val, k: K0| -> Node {
@@ -127,8 +148,8 @@ pub struct Interceptor<S, T, A, B> {
 
 impl<S: Effect, T, A: 'static, B: 'static> Interceptor<S, T, A, B> {
     pub fn new(
-        ret: impl Fn(A) -> Eff<T, B> + 'static,
-        apply: impl Fn(S, K<T, B>, Pass<S>) -> Eff<T, B> + 'static,
+        ret: impl Fn(A) -> Prog<B, T> + 'static,
+        apply: impl Fn(S, K<T, B>, Pass<S>) -> Prog<B, T> + 'static,
     ) -> Self {
         let rt = DeepRt {
             ret: Box::new(move |v: Val| ret(v.take::<A>()).node),
@@ -149,8 +170,8 @@ pub struct Observer<T, A, B> {
 
 impl<T, A: 'static, B: 'static> Observer<T, A, B> {
     pub fn new(
-        ret: impl Fn(A) -> Eff<T, B> + 'static,
-        apply: impl Fn(AnyOp, K<T, B>) -> Eff<T, B> + 'static,
+        ret: impl Fn(A) -> Prog<B, T> + 'static,
+        apply: impl Fn(AnyOp, K<T, B>) -> Prog<B, T> + 'static,
     ) -> Self {
         let rt = ObserveRt {
             ret: Box::new(move |v: Val| ret(v.take::<A>()).node),

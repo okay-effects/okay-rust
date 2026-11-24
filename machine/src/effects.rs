@@ -1,6 +1,6 @@
 //! THE STANDARD EFFECTS and their handlers: reader, state, writer, choice, throws — okay-one's std.
 
-use crate::eff::{perform, pure, Eff, Never, Reply};
+use crate::eff::{perform, pure, Prog, Never, Reply};
 use crate::handler::{Handler, K};
 use std::fmt::Debug;
 
@@ -13,13 +13,13 @@ pub use okay::effects::{Reader, State, Throws, Writer};
 
 
 /// the value asked of the reader
-pub fn ask<V: Clone + Debug + 'static, R: Member<Reader<V>, Ix>, Ix>() -> Eff<R, V> {
+pub fn ask<V: Clone + Debug + 'static, R: Member<Reader<V>, Ix>, Ix>() -> Prog<V, R> {
     perform(Reader::Ask)
 }
 
 /// each ask answered `v`, in place
 pub fn reader<V: Clone + Debug + 'static, T, A: 'static>(v: V) -> Handler<Reader<V>, T, A, A> {
-    Handler::answering(move |op| match op {
+    Handler::in_place(move |op| match op {
         Reader::Ask(r) => r.give(v.clone()),
     }, |a| a)
 }
@@ -27,16 +27,16 @@ pub fn reader<V: Clone + Debug + 'static, T, A: 'static>(v: V) -> Handler<Reader
 // STATE: a value read and written
 
 
-pub fn get<S: Clone + Debug + 'static, R: Member<State<S>, Ix>, Ix>() -> Eff<R, S> {
+pub fn get<S: Clone + Debug + 'static, R: Member<State<S>, Ix>, Ix>() -> Prog<S, R> {
     perform(State::Get)
 }
 
-pub fn put<S: Clone + Debug + 'static, R: Member<State<S>, Ix>, Ix>(s: S) -> Eff<R, ()> {
+pub fn put<S: Clone + Debug + 'static, R: Member<State<S>, Ix>, Ix>(s: S) -> Prog<(), R> {
     perform(|r| State::Put(s, r))
 }
 
 /// the state moved by `f`
-pub fn modify<S: Clone + Debug + 'static, R: Member<State<S>, Ix> + 'static, Ix: 'static>(f: impl Fn(S) -> S + 'static) -> Eff<R, ()> {
+pub fn modify<S: Clone + Debug + 'static, R: Member<State<S>, Ix> + 'static, Ix: 'static>(f: impl Fn(S) -> S + 'static) -> Prog<(), R> {
     get::<S, R, Ix>().flat_map(move |s| put::<S, R, Ix>(f(s)))
 }
 
@@ -54,7 +54,7 @@ pub fn state<S: Clone + Debug + 'static, T, A: 'static>(s0: S) -> Handler<State<
 // WRITER: values told
 
 
-pub fn tell<W: Clone + Debug + 'static, R: Member<Writer<W>, Ix>, Ix>(w: W) -> Eff<R, ()> {
+pub fn tell<W: Clone + Debug + 'static, R: Member<Writer<W>, Ix>, Ix>(w: W) -> Prog<(), R> {
     perform(|r| Writer::Tell(w, r))
 }
 
@@ -82,23 +82,23 @@ impl Effect for Choose {
 }
 
 /// one of the values, each in turn
-pub fn among<A: Clone + 'static, R: Member<Choose, Ix>, Ix>(xs: Vec<A>) -> Eff<R, A> {
+pub fn among<A: Clone + 'static, R: Member<Choose, Ix>, Ix>(xs: Vec<A>) -> Prog<A, R> {
     perform(|r| Choose::Among(xs.len(), r)).map(move |i: usize| xs[i].clone())
 }
 
 /// true, then false
-pub fn flip<R: Member<Choose, Ix>, Ix>() -> Eff<R, bool> {
+pub fn flip<R: Member<Choose, Ix>, Ix>() -> Prog<bool, R> {
     perform(|r| Choose::Among(2, r)).map(|i: usize| i == 0)
 }
 
 /// no value: this path dropped
-pub fn fail<A: 'static, R: Member<Choose, Ix>, Ix>() -> Eff<R, A> {
+pub fn fail<A: 'static, R: Member<Choose, Ix>, Ix>() -> Prog<A, R> {
     perform(Choose::Fail).map(|n: Never| match n {})
 }
 
 /// every value of the body, one per path, in order
 pub fn all<T: 'static, A: Clone + 'static>() -> Handler<Choose, T, A, Vec<A>> {
-    Handler::deep(|a| pure(vec![a]), |op, k| match op {
+    Handler::new(|a| pure(vec![a]), |op, k| match op {
         Choose::Among(n, r) => paths(k, r, 0, n).map(|mut v: Vec<A>| {
             v.reverse();
             v
@@ -109,7 +109,7 @@ pub fn all<T: 'static, A: Clone + 'static>() -> Handler<Choose, T, A, Vec<A>> {
 
 /// the paths from the `i`-th on, their values reversed: each path's added at the end, the last first — no list
 /// copied but each path's own
-fn paths<T: 'static, A: Clone + 'static>(k: K<T, Vec<A>>, r: Reply<usize>, i: usize, n: usize) -> Eff<T, Vec<A>> {
+fn paths<T: 'static, A: Clone + 'static>(k: K<T, Vec<A>>, r: Reply<usize>, i: usize, n: usize) -> Prog<Vec<A>, T> {
     if i == n {
         return pure(Vec::new());
     }
@@ -124,13 +124,13 @@ fn paths<T: 'static, A: Clone + 'static>(k: K<T, Vec<A>>, r: Reply<usize>, i: us
 // THROWS: an error raised, the rest dropped
 
 
-pub fn raise<E: Clone + Debug + 'static, A: 'static, R: Member<Throws<E>, Ix>, Ix>(e: E) -> Eff<R, A> {
+pub fn raise<E: Clone + Debug + 'static, A: 'static, R: Member<Throws<E>, Ix>, Ix>(e: E) -> Prog<A, R> {
     perform(|r| Throws::Raise(e, r)).map(|n: Never| match n {})
 }
 
 /// the value, or the error raised
 pub fn either<E: Clone + Debug + 'static, T, A: 'static>() -> Handler<Throws<E>, T, A, Result<A, E>> {
-    Handler::aborting(|a| pure(Ok(a)), |op| match op {
+    Handler::abort(|a| pure(Ok(a)), |op| match op {
         Throws::Raise(e, _) => pure(Err(e)),
     })
 }
@@ -145,7 +145,7 @@ impl<W: Clone + Debug + 'static> Effect for Emit<W> {
     type Kind = Plain;
 }
 
-pub fn emit<W: Clone + Debug + 'static, R: Member<Emit<W>, Ix>, Ix>(w: W) -> Eff<R, ()> {
+pub fn emit<W: Clone + Debug + 'static, R: Member<Emit<W>, Ix>, Ix>(w: W) -> Prog<(), R> {
     perform(|r| Emit::Value(w, r))
 }
 
@@ -153,7 +153,7 @@ pub fn emit<W: Clone + Debug + 'static, R: Member<Emit<W>, Ix>, Ix>(w: W) -> Eff
 /// its own) — or done
 pub enum Gen<W, T> {
     Done,
-    Next(W, std::rc::Rc<dyn Fn() -> Eff<T, Gen<W, T>>>),
+    Next(W, std::rc::Rc<dyn Fn() -> Prog<Gen<W, T>, T>>),
 }
 
 impl<W: Clone, T> Clone for Gen<W, T> {
@@ -176,7 +176,7 @@ impl<W: Debug, T> Debug for Gen<W, T> {
 
 /// the body as a lazy generator: each value given back with the rest of the program, not resumed until pulled
 pub fn generate<W: Clone + Debug + 'static, T: 'static, A: 'static>() -> Handler<Emit<W>, T, A, Gen<W, T>> {
-    Handler::deep(|_| pure(Gen::Done), |op, k| match op {
+    Handler::new(|_| pure(Gen::Done), |op, k| match op {
         Emit::Value(w, r) => pure(Gen::Next(w, std::rc::Rc::new(move || r.resume(&k, ())))),
     })
 }
@@ -195,10 +195,10 @@ pub fn collect_emitted<W: Clone + Debug + 'static, T, A: 'static>() -> Handler<E
 // `shift0`'s body outside the reset, `shift`'s under it (Danvy–Filinski's)
 
 /// an erased rest of a shift: its value in, the program up to the reset out
-type ShiftK<T, S> = std::rc::Rc<dyn Fn(crate::eff::Val) -> Eff<T, S>>;
+type ShiftK<T, S> = std::rc::Rc<dyn Fn(crate::eff::Val) -> Prog<S, T>>;
 
-type ShiftBody<T, S> = std::rc::Rc<dyn Fn(ShiftK<T, S>) -> Eff<T, S>>;
-type ShiftResume<T, S> = std::rc::Rc<dyn Fn(&K<T, S>, crate::eff::Val) -> Eff<T, S>>;
+type ShiftBody<T, S> = std::rc::Rc<dyn Fn(ShiftK<T, S>) -> Prog<S, T>>;
+type ShiftResume<T, S> = std::rc::Rc<dyn Fn(&K<T, S>, crate::eff::Val) -> Prog<S, T>>;
 
 pub struct Shifts<S, T> {
     body: ShiftBody<T, S>,
@@ -223,8 +223,8 @@ impl<S: 'static, T: 'static> Effect for Shifts<S, T> {
 
 /// SHIFT0: the rest up to the nearest `reset` taken as `k`, the body run outside the reset — its answer the reset's
 pub fn shift0<S: 'static, T: 'static, A: Clone + Debug + 'static, R: Member<Shifts<S, T>, Ix>, Ix>(
-    f: impl Fn(std::rc::Rc<dyn Fn(A) -> Eff<T, S>>) -> Eff<T, S> + 'static,
-) -> Eff<R, A> {
+    f: impl Fn(std::rc::Rc<dyn Fn(A) -> Prog<S, T>>) -> Prog<S, T> + 'static,
+) -> Prog<A, R> {
     let f = std::rc::Rc::new(f);
     perform(move |r: Reply<A>| Shifts {
         body: std::rc::Rc::new(move |k: ShiftK<T, S>| f(std::rc::Rc::new(move |a: A| k(crate::eff::Val::new(a))))),
@@ -234,14 +234,14 @@ pub fn shift0<S: 'static, T: 'static, A: Clone + Debug + 'static, R: Member<Shif
 
 /// SHIFT: as `shift0`, the body run under the reset — a shift in it captures up to the same reset
 pub fn shift<S: 'static, T: 'static, A: Clone + Debug + 'static, R: Member<Shifts<S, T>, Ix>, Ix>(
-    f: impl Fn(std::rc::Rc<dyn Fn(A) -> Eff<T, S>>) -> Eff<Cons<Shifts<S, T>, T>, S> + 'static,
-) -> Eff<R, A> {
+    f: impl Fn(std::rc::Rc<dyn Fn(A) -> Prog<S, T>>) -> Prog<S, Cons<Shifts<S, T>, T>> + 'static,
+) -> Prog<A, R> {
     shift0(move |k| f(k).handle(reset::<S, T>()))
 }
 
 /// THE RESET of `Shifts<S, T>`: a shift's body given the rest up to it
 pub fn reset<S: 'static, T: 'static>() -> Handler<Shifts<S, T>, T, S, S> {
-    Handler::deep(pure, |op: Shifts<S, T>, k| {
+    Handler::new(pure, |op: Shifts<S, T>, k| {
         let resume = op.resume.clone();
         (op.body)(std::rc::Rc::new(move |v| resume(&k, v)))
     })

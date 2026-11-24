@@ -8,7 +8,7 @@ use okay_machine::*;
 
 type S = State<i64>;
 
-fn counted<R: Member<Choose, I1> + Member<S, I2> + 'static, I1: 'static, I2: 'static>() -> Eff<R, i64> {
+fn counted<R: Member<Choose, I1> + Member<S, I2> + 'static, I1: 'static, I2: 'static>() -> Prog<i64, R> {
     eff! { data;
         x <- among::<i64, R, I1>(vec![1, 2, 3]);
         s <- get::<i64, R, I2>();
@@ -22,7 +22,7 @@ fn counted<R: Member<Choose, I1> + Member<S, I2> + 'static, I1: 'static, I2: 'st
 fn cell<T, A: 'static>(s0: i64) -> Handler<S, T, A, (i64, A)> {
     let c = Rc::new(Cell::new(s0));
     let at_end = c.clone();
-    Handler::answering(
+    Handler::in_place(
         move |op| match op {
             State::Get(r) => r.give(c.get()),
             State::Put(s, r) => {
@@ -70,7 +70,7 @@ impl Effect for Two {
 #[test]
 fn ad_the_rests_resumed_in_reverse_each_its_state_as_it_was() {
     fn twice<T: 'static>() -> Handler<Two, T, i64, Vec<i64>> {
-        Handler::deep(|a| pure(vec![a]), |op, k| match op {
+        Handler::new(|a| pure(vec![a]), |op, k| match op {
             Two::Pick(r) => {
                 // the second first, then the first: each from the state as it was when the rest was taken
                 r.resume(&k, 2).flat_map(move |two: Vec<i64>| {
@@ -79,7 +79,7 @@ fn ad_the_rests_resumed_in_reverse_each_its_state_as_it_was() {
             }
         })
     }
-    fn picked<R: Member<Two, I1> + Member<S, I2> + 'static, I1: 'static, I2: 'static>() -> Eff<R, i64> {
+    fn picked<R: Member<Two, I1> + Member<S, I2> + 'static, I1: 'static, I2: 'static>() -> Prog<i64, R> {
         eff! { data;
             s <- get::<i64, R, I2>();
             x <- perform::<R, Two, I1, i64>(Two::Pick);
@@ -98,7 +98,7 @@ fn ad_the_rests_resumed_in_reverse_each_its_state_as_it_was() {
 #[test]
 fn f_flat_map_and_filter_over_100_000_empties_in_constant_stack() {
     type R = row![Choose];
-    let p: Eff<R, i64> = among((1..=100_000).collect())
+    let p: Prog<i64, R> = among((1..=100_000).collect())
         .flat_map(|x: i64| if x % 1000 == 0 { pure(x) } else { fail() });
     assert_eq!(p.handle(all()).run().len(), 100);
 }
@@ -106,7 +106,7 @@ fn f_flat_map_and_filter_over_100_000_empties_in_constant_stack() {
 /// "F. binds nested to the left, 100 000, in constant stack"
 #[test]
 fn f_binds_nested_to_the_left_100_000_in_constant_stack() {
-    let mut p: Eff<Nil, i64> = pure(0);
+    let mut p: Prog<i64, Nil> = pure(0);
     for _ in 0..100_000 {
         p = p.flat_map(|x| pure(x + 1));
     }

@@ -5,7 +5,7 @@ use okay_machine::*;
 
 type R = row![Writer<i64>];
 
-fn counting(n: i64) -> Eff<R, ()> {
+fn counting(n: i64) -> Prog<(), R> {
     if n == 0 { pure(()) } else { tell::<i64, R, _>(n).flat_map(move |_| counting(n - 1)) }
 }
 

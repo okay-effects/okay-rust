@@ -6,12 +6,12 @@ use okay_machine::*;
 
 type R = row![Reader<i64>, Writer<String>, State<i64>, Choose];
 
-fn run_r<A: Clone + 'static>(p: Eff<R, A>) -> Vec<(i64, (Vec<String>, A))> {
+fn run_r<A: Clone + 'static>(p: Prog<A, R>) -> Vec<(i64, (Vec<String>, A))> {
     p.handle(reader(7)).handle(collect()).handle(state(0)).handle(all()).run()
 }
 
 /// a program of each effect, its value from `x`
-fn f(x: i64) -> Eff<R, i64> {
+fn f(x: i64) -> Prog<i64, R> {
     eff! { data;
         r <- ask::<i64, _, _>();
         _ <- tell::<String, _, _>(format!("f {x}"));
@@ -22,11 +22,11 @@ fn f(x: i64) -> Eff<R, i64> {
     }
 }
 
-fn g(x: i64) -> Eff<R, i64> {
+fn g(x: i64) -> Prog<i64, R> {
     tell::<String, R, _>(format!("g {x}")).flat_map(|_| get::<i64, R, _>()).map(move |s| s + x)
 }
 
-fn m() -> Eff<R, i64> {
+fn m() -> Prog<i64, R> {
     f(1)
 }
 
@@ -60,11 +60,11 @@ fn the_laws_in_a_dollar_changing_its_answer() {
     use okay_machine::cont::shift0;
     use std::rc::Rc;
     type S = Rc<dyn Fn(i64) -> String>;
-    type C = Eff<Nil, String>;
-    let shift = || shift0::<Reset, Nil, _, i64, C, Eff<Nil, S>>(|k| pure(Rc::new(move |x| k(x).run()) as S));
+    type C = Prog<String, Nil>;
+    let shift = || shift0::<Reset, Nil, _, i64, C, Prog<S, Nil>>(|k| pure(Rc::new(move |x| k(x).run()) as S));
     let show = |n: i64| pure_c::<Reset, C, String>(n.to_string());
     let twice = |s: String| pure_c::<Reset, C, String>(format!("{s}{s}"));
-    let printf = |body: Cont<Reset, C, Eff<Nil, S>, String>| -> S { dollar(body, |s| pure(format!("<{s}>"))).run() };
+    let printf = |body: Cont<Reset, C, Prog<S, Nil>, String>| -> S { dollar(body, |s| pure(format!("<{s}>"))).run() };
     let left = printf(shift().flat_map(show).flat_map(twice));
     let right = printf(shift().flat_map(move |n| show(n).flat_map(twice)));
     assert_eq!(left(4), "<44>");

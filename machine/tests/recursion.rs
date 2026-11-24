@@ -9,10 +9,10 @@ const MILLION: i64 = 1_000_000;
 
 // MUTUAL RECURSION BY call!
 
-fn is_even(i: i64) -> Eff<Nil, bool> {
+fn is_even(i: i64) -> Prog<bool, Nil> {
     if i == 0 { pure(true) } else { call!(is_odd(i - 1)) }
 }
-fn is_odd(i: i64) -> Eff<Nil, bool> {
+fn is_odd(i: i64) -> Prog<bool, Nil> {
     if i == 0 { pure(false) } else { call!(is_even(i - 1)) }
 }
 
@@ -26,10 +26,10 @@ fn mutual_tail_recursion_by_call_a_million_steps() {
 // THE SAME, AN EFFECT AT EACH STEP: a state counting the steps
 
 type Counted = row![State<i64>];
-fn even_counted(i: i64) -> Eff<Counted, bool> {
+fn even_counted(i: i64) -> Prog<bool, Counted> {
     if i == 0 { pure(true) } else { eff! { data; modify::<i64, _, _>(|s| s + 1); call!(odd_counted(i - 1)) } }
 }
-fn odd_counted(i: i64) -> Eff<Counted, bool> {
+fn odd_counted(i: i64) -> Prog<bool, Counted> {
     if i == 0 { pure(false) } else { eff! { data; modify::<i64, _, _>(|s| s + 1); call!(even_counted(i - 1)) } }
 }
 
@@ -51,7 +51,7 @@ enum Call {
 #[test]
 fn mutual_recursion_by_tail_rec_a_reader_at_each_step() {
     type R = row![Reader<i64>];
-    let p: Eff<R, bool> = tail_rec(Call::Even(MILLION), |c| {
+    let p: Prog<bool, R> = tail_rec(Call::Even(MILLION), |c| {
         ask::<i64, R, _>().map(move |step| match c {
             Call::Even(0) => Loop::Done(true),
             Call::Odd(0) => Loop::Done(false),
@@ -66,7 +66,7 @@ fn mutual_recursion_by_tail_rec_a_reader_at_each_step() {
 #[test]
 fn a_loop_under_a_choice_each_path_its_own() {
     type R = row![Choose];
-    let p: Eff<R, i64> = among(vec![10i64, 1000]).flat_map(|n| {
+    let p: Prog<i64, R> = among(vec![10i64, 1000]).flat_map(|n| {
         tail_rec((0i64, 0i64), move |(i, acc)| {
             pure(if i == n { Loop::Done(acc) } else { Loop::Next((i + 1, acc + i)) })
         })
