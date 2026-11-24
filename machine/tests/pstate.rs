@@ -38,7 +38,7 @@ fn pstate_under_an_effect_of_the_row_an_operation_between_the_moves_out_of_the_d
             })
             .map(|_| 0)
     });
-    assert_eq!(p.handle(reader(5)).run(), ("6".to_string(), 0));
+    assert_eq!(p.handle(Reader::run(5)).run(), ("6".to_string(), 0));
 }
 
 // ATM AT WORK (TestAtmUses): a protocol — a connection closed, open, logged in — each step its state before and after in
@@ -95,7 +95,10 @@ fn a_protocol_connect_login_query_close() {
                 .flat_map(|n| close().map(move |_| n))
         })
     });
-    assert_eq!(session.handle(reader(5432)).handle(collect()).run(), (vec!["alice@db:5432: select 1".to_string()], (Closed, 8)));
+    assert_eq!(
+        session.handle(Reader::run(5432)).handle(Writer::run()).run(),
+        (vec!["alice@db:5432: select 1".to_string()], (Closed, 8))
+    );
 }
 
 // A PIPELINE: the rows' schema the state's type — each stage adds its columns, a stage needing a column runs only after
@@ -163,7 +166,7 @@ fn a_pipeline_load_enrich_score() {
     let run = pstate::<R, (), Vec<Scored>, i64>((), move |_| {
         load(raw.clone()).flat_map(|_| enrich()).flat_map(|_| score())
     });
-    let (told, (rows, risky)) = run.handle(reader(500)).handle(collect()).run();
+    let (told, (rows, risky)) = run.handle(Reader::run(500)).handle(Writer::run()).run();
     assert_eq!(told, vec!["enriched 3".to_string()]);
     assert_eq!(risky, 1);
     assert_eq!(rows.iter().map(|r| r.risky).collect::<Vec<_>>(), vec![false, false, true]);

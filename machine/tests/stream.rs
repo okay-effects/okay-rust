@@ -9,7 +9,7 @@ use okay_machine::*;
 type E = row![Emit<i64>];
 
 fn stream(body: Prog<(), E>) -> Prog<Gen<i64, Nil>, Nil> {
-    body.handle(generate())
+    body.handle(Emit::generate())
 }
 
 fn take(g: Prog<Gen<i64, Nil>, Nil>, n: usize) -> Vec<i64> {
@@ -67,7 +67,7 @@ fn other_effects_handled_in_the_body_a_reader() {
     let reading = ask::<i64, R, _>()
         .flat_map(emit::<i64, R, _>)
         .flat_map(|_| ask::<i64, R, _>().flat_map(|n| emit::<i64, R, _>(n * 2)));
-    assert_eq!(take(stream(reading.handle(reader(5))), 10), vec![5, 10]);
+    assert_eq!(take(stream(reading.handle(Reader::run(5))), 10), vec![5, 10]);
 }
 
 fn counter<R: Member<State<i64>, I1> + Member<Emit<i64>, I2> + 'static, I1: 'static, I2: 'static>() -> Prog<(), R> {
@@ -104,7 +104,8 @@ fn a_cell_handled_in_the_body_lives_in_the_stream_one_every_pull_shares() {
 #[test]
 fn a_state_handled_in_the_body_each_rest_its_state_as_it_was_taken() {
     type R = row![State<i64>, Emit<i64>];
-    let Gen::Next(w, rest) = stream(counter::<R, _, _>().handle(state(0)).map(|_| ())).run() else { panic!("empty") };
+    let Gen::Next(w, rest) = stream(counter::<R, _, _>().handle(State::run(0)).map(|_| ()))
+        .run() else { panic!("empty") };
     let mut a = vec![w];
     a.extend(take(rest(), 3));
     assert_eq!(a, vec![0, 1, 2, 3]);
@@ -119,5 +120,5 @@ fn many_elements_pulled_in_constant_stack_collect_keeps_them_all() {
     fn up_to(i: i64, n: i64) -> Prog<(), E> {
         if i == n { pure(()) } else { emit::<i64, E, _>(i).flat_map(move |_| up_to(i + 1, n)) }
     }
-    assert_eq!(up_to(0, 100_000).handle(collect_emitted()).run().0.len(), 100_000);
+    assert_eq!(up_to(0, 100_000).handle(Emit::collect()).run().0.len(), 100_000);
 }

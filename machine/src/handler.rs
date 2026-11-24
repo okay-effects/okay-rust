@@ -1,4 +1,4 @@
-//! HANDLERS, values of three forms, each over the row `T` outside it, of the body's value `A` to its own `B` — as
+//! HANDLERS, values of three forms, each over the row `R` outside it, of the body's value `A` to its own `B` — as
 //! okay-one's: in place (`in_place`), with a state (`stateful`), general, taking the rest (`new`). Typed here,
 //! erased into a level of the machine.
 
@@ -11,28 +11,28 @@ use crate::machine::{AbortingRt, AnsweringRt, DeepRt, K0, Level, ObserveRt, Stat
 use crate::row::Effect;
 
 /// the types of a handler, the compiler's only
-type Types<E, T, A, B> = PhantomData<fn() -> (E, T, A, B)>;
+type Types<E, A, B, R> = PhantomData<fn() -> (E, A, B, R)>;
 
-/// A HANDLER of `E`, over the row `T` outside it, of the body's `A` to `B`
-pub struct Handler<E, T, A, B> {
+/// A HANDLER of `E`, over the row `R` outside it, of the body's `A` to `B`
+pub struct Handler<E, A, B, R> {
     pub(crate) level: Level,
-    _t: Types<E, T, A, B>,
+    _t: Types<E, A, B, R>,
 }
 
 /// THE REST of a handler taking it, data: resumed by an operation's `Reply`, as many times as wanted — each time its
 /// levels put back as they were when it was taken, a state's included
-pub struct K<T, B> {
+pub struct K<B, R> {
     pub(crate) k: K0,
-    _t: PhantomData<fn() -> (T, B)>,
+    _t: PhantomData<fn() -> (B, R)>,
 }
 
-impl<T, B> Clone for K<T, B> {
+impl<B, R> Clone for K<B, R> {
     fn clone(&self) -> Self {
         K { k: self.k.clone(), _t: PhantomData }
     }
 }
 
-impl<E: Effect, T, A: 'static, B: 'static> Handler<E, T, A, B> {
+impl<E: Effect, R, A: 'static, B: 'static> Handler<E, A, B, R> {
     /// ANSWERING IN PLACE: each operation its value at once, the rest never taken; `ret` of the body's value
     pub fn in_place(value: impl Fn(E) -> Answer + 'static, ret: impl Fn(A) -> B + 'static) -> Self {
         let rt = AnsweringRt {
@@ -66,7 +66,7 @@ impl<E: Effect, T, A: 'static, B: 'static> Handler<E, T, A, B> {
 
     /// DROPPING THE REST: each operation's program in place of the body's — the rest never taken, no `k` made (an
     /// error, an early answer); `ret` of the body's value
-    pub fn abort(ret: impl Fn(A) -> Prog<B, T> + 'static, abort: impl Fn(E) -> Prog<B, T> + 'static) -> Self {
+    pub fn abort(ret: impl Fn(A) -> Prog<B, R> + 'static, abort: impl Fn(E) -> Prog<B, R> + 'static) -> Self {
         let rt = AbortingRt {
             ret: Box::new(move |v: Val| ret(v.take::<A>()).node),
             abort: Box::new(move |op: Val| abort(op.take::<E>()).node),
@@ -77,8 +77,8 @@ impl<E: Effect, T, A: 'static, B: 'static> Handler<E, T, A, B> {
     /// TAKING THE REST: each operation its clause, given the rest `k` — resumed none, once or many times, by the
     /// operation's `Reply`; the clause a program over the row outside. `ret` of the body's value
     pub fn new(
-        ret: impl Fn(A) -> Prog<B, T> + 'static,
-        apply: impl Fn(E, K<T, B>) -> Prog<B, T> + 'static,
+        ret: impl Fn(A) -> Prog<B, R> + 'static,
+        apply: impl Fn(E, K<B, R>) -> Prog<B, R> + 'static,
     ) -> Self {
         let rt = DeepRt {
             ret: Box::new(move |v: Val| ret(v.take::<A>()).node),
@@ -97,25 +97,25 @@ impl<E: Effect, T, A: 'static, B: 'static> Handler<E, T, A, B> {
 
     /// the old name of [`Handler::abort`]
     #[deprecated(note = "the family's name is `Handler::abort`")]
-    pub fn aborting(ret: impl Fn(A) -> Prog<B, T> + 'static, abort: impl Fn(E) -> Prog<B, T> + 'static) -> Self {
+    pub fn aborting(ret: impl Fn(A) -> Prog<B, R> + 'static, abort: impl Fn(E) -> Prog<B, R> + 'static) -> Self {
         Self::abort(ret, abort)
     }
 
     /// the old name of [`Handler::new`] (the general handler)
     #[deprecated(note = "the family's name is `Handler::new`")]
     pub fn deep(
-        ret: impl Fn(A) -> Prog<B, T> + 'static,
-        apply: impl Fn(E, K<T, B>) -> Prog<B, T> + 'static,
+        ret: impl Fn(A) -> Prog<B, R> + 'static,
+        apply: impl Fn(E, K<B, R>) -> Prog<B, R> + 'static,
     ) -> Self {
         Self::new(ret, apply)
     }
 }
 
-impl<E: Effect, T, A: 'static> Handler<E, T, A, A> {
+impl<E: Effect, R, A: 'static> Handler<E, A, A, R> {
     /// TRANSLATING: each operation answered by a program over the row outside (`r.give(x)` at its end) — the rest
     /// resumed once with it; a failure in that program raised where the operation was, inside the body, so the body's
     /// own recover sees it
-    pub fn translating(apply: impl Fn(E) -> Prog<Answer, T> + 'static) -> Self {
+    pub fn translating(apply: impl Fn(E) -> Prog<Answer, R> + 'static) -> Self {
         let rt = DeepRt {
             ret: Box::new(|v: Val| Node(crate::eff::Kind::Return(v))),
             apply: Box::new(move |op: Val, k: K0| -> Node {
@@ -140,16 +140,16 @@ impl<E: Effect, T, A: 'static> Handler<E, T, A, A> {
 }
 
 /// AN INTERCEPTOR of the sensitive effect `S`: its clauses given each operation, the rest `k`, and the way on
-/// (`Pass`) — over the row `T` outside the audit, `Audited<S>` in it; `ret` of the body's value
-pub struct Interceptor<S, T, A, B> {
+/// (`Pass`) — over the row `R` outside the audit, `Audited<S>` in it; `ret` of the body's value
+pub struct Interceptor<S, A, B, R> {
     pub(crate) level: Level,
-    _t: Types<S, T, A, B>,
+    _t: Types<S, A, B, R>,
 }
 
-impl<S: Effect, T, A: 'static, B: 'static> Interceptor<S, T, A, B> {
+impl<S: Effect, R, A: 'static, B: 'static> Interceptor<S, A, B, R> {
     pub fn new(
-        ret: impl Fn(A) -> Prog<B, T> + 'static,
-        apply: impl Fn(S, K<T, B>, Pass<S>) -> Prog<B, T> + 'static,
+        ret: impl Fn(A) -> Prog<B, R> + 'static,
+        apply: impl Fn(S, K<B, R>, Pass<S>) -> Prog<B, R> + 'static,
     ) -> Self {
         let rt = DeepRt {
             ret: Box::new(move |v: Val| ret(v.take::<A>()).node),
@@ -162,16 +162,16 @@ impl<S: Effect, T, A: 'static, B: 'static> Interceptor<S, T, A, B> {
 }
 
 /// AN OBSERVER of every operation on its way out, whatever its effect: its clause given the operation (`AnyOp`) and
-/// the rest `k` — over the row `T` outside it; `ret` of the body's value
-pub struct Observer<T, A, B> {
+/// the rest `k` — over the row `R` outside it; `ret` of the body's value
+pub struct Observer<A, B, R> {
     pub(crate) level: Level,
-    _t: Types<(), T, A, B>,
+    _t: Types<(), A, B, R>,
 }
 
-impl<T, A: 'static, B: 'static> Observer<T, A, B> {
+impl<R, A: 'static, B: 'static> Observer<A, B, R> {
     pub fn new(
-        ret: impl Fn(A) -> Prog<B, T> + 'static,
-        apply: impl Fn(AnyOp, K<T, B>) -> Prog<B, T> + 'static,
+        ret: impl Fn(A) -> Prog<B, R> + 'static,
+        apply: impl Fn(AnyOp, K<B, R>) -> Prog<B, R> + 'static,
     ) -> Self {
         let rt = ObserveRt {
             ret: Box::new(move |v: Val| ret(v.take::<A>()).node),

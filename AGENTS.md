@@ -157,10 +157,14 @@ under labels `'okay_c{id}` (continue) / `'okay_b{id}` (break) then the loop writ
 - okay-core's kernel ported (`okay.one` in ~/work/my/okay-core is the specification; the okay-one repository is history): a program is DATA, `Prog<A, R>`, a tree of nodes; its
   effects a row `R` (`Cons<E, R>` … `Nil`, `row![…]`), an effect's place found by the compiler (`Member<E, Ix>`, the
   index `Here`/`There` never written); handlers values of three forms (`Handler::in_place`, `stateful`, `new`), not
-  tied to the program; the rest `k` of a general handler data (`K<T, B>`), resumed by the operation's `Reply`, as many
+  tied to the program; the rest `k` of a general handler data (`K<B, R>`), resumed by the operation's `Reply`, as many
   times as wanted, each time with its levels as they were when taken — a state's included.
 - Names follow the family's vocabulary (~/work/my/okay-effects/CONCEPT.md §3): `Prog<A, R>` (value first),
-  `Handler::in_place`/`new`/`abort`. The old `Eff<R, A>`, `answering`, `deep`, `aborting` are `#[deprecated]` aliases.
+  `Handler::in_place`/`new`/`abort`; the row LAST in every type (`Handler<E, A, B, R>`, `K<B, R>`); standard handlers
+  associated functions of their effects (`Reader::run(v)`, `State::run(s0)`, `Writer::run()`, `Throws::run()`,
+  `Choose::all()`/`first()`, `Emit::collect()`/`generate()`, `Shifts::reset()`). The old `Eff<R, A>`, `answering`,
+  `deep`, `aborting` and the free `reader`, `state`, `collect`, `either`, `all`, `generate`, `collect_emitted`,
+  `reset` are `#[deprecated]` aliases.
 - An operation is an enum variant carrying its `Reply<T>`: `perform(Reader::Ask)`, `perform(|r| State::Put(s, r))`;
   a handler answers only through it (`r.give(v)`, `r.resume(&k, v)`), so the value's type is the operation's.
 - The machine (`machine.rs`) is erased: values `Box<dyn Any>`, taken back at the type they were made at — the typed

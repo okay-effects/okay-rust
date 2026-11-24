@@ -12,7 +12,7 @@ use okay_machine::*;
 type Log = Rc<RefCell<Vec<String>>>;
 
 /// a writer telling into a cell: what was told survives the level a failure drops
-fn cell<T, A: 'static>(log: Log) -> Handler<Writer<String>, T, A, A> {
+fn cell<T, A: 'static>(log: Log) -> Handler<Writer<String>, A, A, T> {
     Handler::in_place(move |op: Writer<String>| match op {
         Writer::Tell(w, r) => {
             log.borrow_mut().push(w);
@@ -44,14 +44,14 @@ fn a_translations_failure_raised_where_the_operation_was_a_recover_in_the_body_s
 fn ensuring_the_finalizer_after_the_program_its_value_kept() {
     type R = row![Writer<String>];
     let p = tell::<String, R, _>("body".into()).map(|_| 1).ensure(says::<R, _>("fin"));
-    assert_eq!(p.handle(collect()).run(), (vec!["body".to_string(), "fin".to_string()], 1));
+    assert_eq!(p.handle(Writer::run()).run(), (vec!["body".to_string(), "fin".to_string()], 1));
 }
 
 #[test]
 fn ensuring_and_a_throw_the_finalizer_then_the_error_out() {
     type R = row![Writer<String>];
     let p = || tell::<String, R, _>("body".into()).map(|_| -> i64 { panic!("boom") }).ensure(says::<R, _>("fin"));
-    assert_eq!(failed(p().handle(collect()).step()), "boom");
+    assert_eq!(failed(p().handle(Writer::run()).step()), "boom");
     let log: Log = Rc::default();
     assert_eq!(failed(p().handle(cell(log.clone())).step()), "boom");
     assert_eq!(*log.borrow(), vec!["body", "fin"]);
@@ -84,14 +84,20 @@ fn ensuring_under_attempt_a_raise_runs_the_finalizer_then_attempt_answers_err() 
         .flat_map(|_| raise::<String, (), R, _>("no".into()))
         .map(|_| 1)
         .ensure(move || tell::<String, R, _>("fin".into()));
-    assert_eq!(p.handle(either()).handle(collect()).run(), (vec!["body".to_string(), "fin".to_string()], Err("no".to_string())));
+    assert_eq!(
+        p.handle(Throws::run()).handle(Writer::run()).run(),
+        (vec!["body".to_string(), "fin".to_string()], Err("no".to_string()))
+    );
 }
 
 #[test]
 fn a_finalizer_under_chooses_k_resumed_twice_runs_twice() {
     type R = row![Choose, Writer<String>];
     let p = flip::<R, _>().map(|b| if b { 1 } else { 2 }).ensure(move || tell::<String, R, _>("fin".into()));
-    assert_eq!(p.handle(all()).handle(collect()).run(), (vec!["fin".to_string(), "fin".to_string()], vec![1, 2]));
+    assert_eq!(
+        p.handle(Choose::all()).handle(Writer::run()).run(),
+        (vec!["fin".to_string(), "fin".to_string()], vec![1, 2])
+    );
 }
 
 #[test]
@@ -109,7 +115,7 @@ fn a_guard_told_of_an_operation_passing_out_another_sent_in_its_place_a_count_at
         _ => (op, None),
     });
     let p = among::<i64, R, _>(vec![1, 2, 3]).guard(g);
-    assert_eq!(p.handle(all()).run(), vec![1, 2]);
+    assert_eq!(p.handle(Choose::all()).run(), vec![1, 2]);
     assert_eq!((told.borrow().clone(), resumed.get()), (vec![3], 2));
 }
 
@@ -121,7 +127,7 @@ fn a_guards_passing_that_panics_raised_where_the_operation_is_inside_the_guard()
     let g = Guard::new()
         .finalizer(move || { f.set(f.get() + 1); pure(()) })
         .passing(|_| panic!("boom"));
-    assert_eq!(failed(flip::<R, _>().map(|_| 1).guard(g).handle(all()).step()), "boom");
+    assert_eq!(failed(flip::<R, _>().map(|_| 1).guard(g).handle(Choose::all()).step()), "boom");
     assert_eq!(fin.get(), 1);
 }
 
@@ -129,9 +135,9 @@ fn a_guards_passing_that_panics_raised_where_the_operation_is_inside_the_guard()
 fn recover_catches_a_panic_not_a_raise() {
     type R = row![Throws<String>];
     let thrown = pure::<R, i64>(0).map(|_| -> i64 { panic!("boom") }).recover(|e| pure(if e.message() == "boom" { 7 } else { -1 }));
-    assert_eq!(thrown.handle(either()).run(), Ok(7));
+    assert_eq!(thrown.handle(Throws::run()).run(), Ok(7));
     let raised = raise::<String, (), R, _>("no".into()).map(|_| 0).recover(|_| pure(-1));
-    assert_eq!(raised.handle(either()).run(), Err("no".to_string()));
+    assert_eq!(raised.handle(Throws::run()).run(), Err("no".to_string()));
 }
 
 #[test]
@@ -150,7 +156,7 @@ fn guards_nested_unwound_innermost_first_a_finalizers_panic_replaces_the_error()
 fn an_abort_whose_finalizers_operation_takes_the_aborting_level_into_a_k_the_abort_on_each_path() {
     type R = row![Throws<String>, Choose];
     let p = raise::<String, (), R, _>("no".into()).map(|_| 1).ensure(|| among::<i64, R, _>(vec![1, 2]).map(|_| ()));
-    assert_eq!(p.handle(either()).handle(all()).run(), vec![Err("no".to_string()), Err("no".to_string())]);
+    assert_eq!(p.handle(Throws::run()).handle(Choose::all()).run(), vec![Err("no".to_string()), Err("no".to_string())]);
 }
 
 #[test]
@@ -160,7 +166,10 @@ fn an_abort_past_guards_and_states_each_finalizer_the_states_dropped() {
         .flat_map(|_| raise::<String, (), R, _>("no".into()))
         .map(|_| 1)
         .ensure(|| get::<i64, R, _>().flat_map(|s| tell::<String, R, _>(format!("fin {s}"))));
-    assert_eq!(p.handle(either()).handle(state(0)).handle(collect()).run(), (vec!["fin 5".to_string()], (5, Err("no".to_string()))));
+    assert_eq!(
+        p.handle(Throws::run()).handle(State::run(0)).handle(Writer::run()).run(),
+        (vec!["fin 5".to_string()], (5, Err("no".to_string())))
+    );
 }
 
 // TestGuardStep: a step failed, cancelled — the error raised inside the rest's levels, their guards asked
@@ -251,7 +260,7 @@ fn ensure_under_a_dollar_a_shift0_passes_the_guard_k_resumed_twice_runs_the_fina
     })
     .flat_map(|x| tell::<String, Q, _>(format!("got {x}")).cont().map(move |_| x * 10));
     let p: Prog<i64, W> = dollar(body.ensure(|| tell::<String, Q, _>("fin".into())), pure);
-    assert_eq!(p.handle(collect()).run(), (vec!["got 1".into(), "fin".into(), "got 2".into(), "fin".into()], 30));
+    assert_eq!(p.handle(Writer::run()).run(), (vec!["got 1".into(), "fin".into(), "got 2".into(), "fin".into()], 30));
 }
 
 #[test]
@@ -278,5 +287,5 @@ fn uncancelable_under_a_dollar_the_mask_held_through_the_shift0_the_finalizer_ru
     })
     .uncancelable()
     .ensure(|| tell::<String, Q, _>("fin".into()));
-    assert_eq!(dollar(body, pure).handle(collect()).run(), (vec!["fin".to_string(), "fin".to_string()], 3));
+    assert_eq!(dollar(body, pure).handle(Writer::run()).run(), (vec!["fin".to_string(), "fin".to_string()], 3));
 }

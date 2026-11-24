@@ -15,7 +15,7 @@
 //!     s <- get::<i64, _, _>();
 //!     yield s * 2
 //! };
-//! assert_eq!(p.handle(reader(5)).handle(state(1)).run(), (6, 12));
+//! assert_eq!(p.handle(Reader::run(5)).handle(State::run(1)).run(), (6, 12));
 //! ```
 //!
 //! A program runs only when every effect of its row is handled:

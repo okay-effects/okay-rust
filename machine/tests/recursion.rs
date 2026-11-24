@@ -36,7 +36,7 @@ fn odd_counted(i: i64) -> Prog<bool, Counted> {
 /// "mutual tail recursion with a state at each step: a million operations"
 #[test]
 fn mutual_tail_recursion_with_a_state_at_each_step() {
-    assert_eq!(even_counted(MILLION).handle(state(0)).run(), (MILLION, true));
+    assert_eq!(even_counted(MILLION).handle(State::run(0)).run(), (MILLION, true));
 }
 
 // MUTUAL RECURSION AS A LOOP: the state names the function
@@ -59,7 +59,7 @@ fn mutual_recursion_by_tail_rec_a_reader_at_each_step() {
             Call::Odd(i) => Loop::Next(Call::Even(i - step)),
         })
     });
-    assert!(p.handle(reader(1)).run());
+    assert!(p.handle(Reader::run(1)).run());
 }
 
 /// "a loop under a choice: each path its own loop, the rest resumed into it"
@@ -71,5 +71,5 @@ fn a_loop_under_a_choice_each_path_its_own() {
             pure(if i == n { Loop::Done(acc) } else { Loop::Next((i + 1, acc + i)) })
         })
     });
-    assert_eq!(p.handle(all()).run(), vec![45, 499_500]);
+    assert_eq!(p.handle(Choose::all()).run(), vec![45, 499_500]);
 }

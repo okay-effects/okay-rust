@@ -17,7 +17,7 @@ let p: Prog<i64, R> = eff! { data;
     s <- get::<i64, _, _>();
     yield s * 2
 };
-assert_eq!(p.handle(reader(5)).handle(state(1)).run(), (6, 12));
+assert_eq!(p.handle(Reader::run(5)).handle(State::run(1)).run(), (6, 12));
 ```
 
 The specification is okay-core's kernel and its suites: each test here is one of okay-core's, named after it
@@ -73,9 +73,12 @@ for a handler answering in place, `r.resume(&k, v)` for one taking the rest — 
 An effect is `Clone + Debug` and an operation's value too: what crosses the boundary of effects can be told and kept
 (the observer needs both). `Kind` is `Plain` or `Sensitive` (see the interceptors).
 
-The standard effects (`okay_machine::effects`): `Reader<V>` (`ask`, `reader`), `State<S>` (`get`, `put`, `modify`, `state`),
-`Writer<W>` (`tell`, `collect`), `Choose` (`among`, `flip`, `fail`, `all` — every path, multi-shot), `Throws<E>`
-(`raise`, `either`); `okay_machine::audit::Audit` (`record`, `trail`).
+The standard effects (`okay_machine::effects`), their handlers associated functions: `Reader<V>` (`ask`;
+`Reader::run(v)`), `State<S>` (`get`, `put`, `modify`; `State::run(s0)`), `Writer<W>` (`tell`; `Writer::run()`),
+`Choose` (`among`, `flip`, `fail`; `Choose::all()` — every path — and `Choose::first()`, multi-shot by a real `k`),
+`Throws<E>` (`raise`; `Throws::run()`); `okay_machine::audit::Audit` (`record`, `trail`). `Reader`, `State`, `Writer`
+and `Throws` are okay's enums: their `run` comes with the traits `ReaderRun`, `StateRun`, `WriterRun`, `ThrowsRun`
+(in `effects::*`).
 
 ## Programs and `eff!`
 
@@ -124,12 +127,13 @@ with and without an effect at each, and a loop under a choice, each path its own
 
 ## Handlers
 
-Three forms, each over the row `T` outside it, of the body's `A` to its own `B`:
+Three forms, `Handler<E, A, B, R>`: of the effect `E`, of the body's `A` to its own `B`, over the row `R` outside it
+(the row always last, as in `Prog<A, R>` and `K<B, R>`):
 
 - `Handler::in_place(value, ret)` — each operation its value at once, in place; nothing taken;
 - `Handler::stateful(s0, step, ret)` — a state `S`, each operation its value and the state moved, in place. Taken
   into a rest, the state as it was then: each resumption its own (a choice's paths, each its state);
-- `Handler::new(ret, apply)` — each operation its clause, given the rest `k: K<T, B>`, data: resumed none, once or
+- `Handler::new(ret, apply)` — each operation its clause, given the rest `k: K<B, R>`, data: resumed none, once or
   many times, kept, by the operation's `Reply`;
 - `Handler::abort(ret, abort)` — the rest dropped, no `k` made (an error, an early answer);
 - `Handler::translating(apply)` — each operation a program over the row outside, `r.give(x)` at its end; a failure
@@ -138,8 +142,12 @@ Three forms, each over the row `T` outside it, of the body's `A` to its own `B`:
 `p.handle(h)` takes a PLAIN effect off wherever it is in the row.
 
 The names are the okay-effects family's (its CONCEPT §3): `Prog<A, R>` a program, value first; `in_place`, `new`
-(general), `abort`. The earlier `Eff<R, A>`, `Handler::answering`, `deep`, `aborting` and `Passing::answering` stay,
-deprecated.
+(general), `abort`; the row last in every type (`Handler<E, A, B, R>`, `K<B, R>`, `Interceptor<S, A, B, R>`,
+`Observer<A, B, R>`, `Passing<E, A, B, R>`); the standard handlers associated functions of their effects
+(`Reader::run(v)`, `State::run(s0)`, `Writer::run()`, `Throws::run()`, `Choose::all()`/`first()`,
+`Emit::collect()`/`generate()`, `Shifts::reset()`). The earlier `Eff<R, A>`, `Handler::answering`, `deep`, `aborting`,
+`Passing::answering` and the free functions `reader`, `state`, `collect`, `either`, `all`, `generate`,
+`collect_emitted`, `reset` stay, deprecated.
 
 ## The machine
 
@@ -171,13 +179,14 @@ THE POINT OF IT ALL (okay-core's `docs/intercept.md` is the full account; the sa
 
 ```rust
 // every operation and its answer told: a reader, a state, a sensitive payment
-fn telling<T: Member<Audit, I> + 'static, I: 'static, A: 'static>() -> Observer<T, A, A> {
+fn telling<T: Member<Audit, I> + 'static, I: 'static, A: 'static>() -> Observer<A, A, T> {
     Observer::new(pure, |op, k| {
         let line = format!("{} {}", op.effect(), op.describe());
         record::<T, I>(line).flat_map(move |_| op.clone().proceed_then(&k, |a| record::<T, I>(format!("  → {a}"))))
     })
 }
-p.observe(telling()).handle(reader(5)).handle(state(1)).handle_audited::<Pay, _, _>(bank(100)).handle(trail()).run()
+p.observe(telling()).handle(Reader::run(5)).handle(State::run(1)).handle_audited::<Pay, _, _>(bank(100))
+    .handle(trail()).run()
 // trail: ["Reader<i64> Ask(_)", "  → 5", "State<i64> Get(_)", "  → 1", "State<i64> Put(6, _)", "  → ()", …]
 ```
 
@@ -243,9 +252,9 @@ rows' schema is the state's type (`tests/control.rs`, `tests/pstate.rs`, `tests/
 
 ## Generators, control as an effect
 
-`Emit` with `generate` (a body as a lazy generator, its `k` kept as the next step, pulled again and again) and
-`collect_emitted`; `Shifts<S, T>`: `shift0`, `shift` (Danvy–Filinski's: its body under the reset) and `reset`, control
-as an effect of the row, its answer fixed (`tests/data.rs`, `tests/stream.rs`, `tests/shift.rs`).
+`Emit` with `Emit::generate()` (a body as a lazy generator, its `k` kept as the next step, pulled again and again) and
+`Emit::collect()`; `Shifts<S, T>`: `shift0`, `shift` (Danvy–Filinski's: its body under the reset) and `Shifts::reset()`,
+control as an effect of the row, its answer fixed (`tests/data.rs`, `tests/stream.rs`, `tests/shift.rs`).
 
 ## Checked against
 
@@ -317,7 +326,7 @@ each step measured, the ones that lost reverted:
    moved behind an `Rc` there, once — so a closure is never cloned, and need not be `Clone`.
 5. **One-shot `k` moved back**: a rest resumed by its last holder (a handler resuming once — most) puts its levels
    back as they are, nothing copied; copies, frames shared, only when it is resumed again.
-6. **`Handler::abort`**: a handler dropping the rest (okay-core's `Aborting`; `either()` is one) truncates the
+6. **`Handler::abort`**: a handler dropping the rest (okay-core's `Aborting`; `Throws::run()` is one) truncates the
    levels, no `k` made.
 7. **A pool of level vectors**: the vector of a rest resumed once goes back to a pool for the next rest taken —
    `choose` −11%, `general` −12%, `forwardedK` −14% (`answered`, `forwarded`, `writer` +7–8%: the loop's code laid out

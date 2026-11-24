@@ -30,7 +30,7 @@ fn a_panic_in_the_middle_of_a_chain_out_of_the_run_the_maps_after_it_not_run() {
 
 #[test]
 fn a_shift_under_many_maps_k_the_maps_each_resumption_all_of_them() {
-    use okay_machine::effects::{reset, shift, Shifts};
+    use okay_machine::effects::{shift, Shifts};
     type SR = row![Shifts<i64, Nil>];
     let mut p: Prog<i64, SR> = shift::<i64, Nil, i64, SR, _>(|k| {
         let k2 = k.clone();
@@ -39,5 +39,5 @@ fn a_shift_under_many_maps_k_the_maps_each_resumption_all_of_them() {
     for _ in 0..50 {
         p = p.map(|x| x + 1);
     }
-    assert_eq!(p.handle(reset()).run(), (1 + 50) + (10 + 50));
+    assert_eq!(p.handle(Shifts::reset()).run(), (1 + 50) + (10 + 50));
 }

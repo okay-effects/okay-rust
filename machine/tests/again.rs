@@ -22,7 +22,7 @@ fn an_effect_past_the_head_handled_again() {
         Reader::Ask(r) => ask::<i64, R, _>().flat_map(move |v| r.resume(&k, 2 * v)),
     });
     let p: Prog<i64, R> = body().intercept(doubling);
-    assert_eq!(p.handle(collect()).handle(reader(5)).run(), (vec!["a=10".to_string()], 20));
+    assert_eq!(p.handle(Writer::run()).handle(Reader::run(5)).run(), (vec!["a=10".to_string()], 20));
 }
 
 /// "the same at the head: the writer intercepted, its tells prefixed and told outside"
@@ -32,5 +32,5 @@ fn the_same_at_the_head() {
         Writer::Tell(w, r) => tell::<String, R, _>(format!("> {w}")).flat_map(move |_| r.resume(&k, ())),
     });
     let p: Prog<i64, R> = body().intercept(prefixing);
-    assert_eq!(p.handle(collect()).handle(reader(5)).run(), (vec!["> a=5".to_string()], 10));
+    assert_eq!(p.handle(Writer::run()).handle(Reader::run(5)).run(), (vec!["> a=5".to_string()], 10));
 }

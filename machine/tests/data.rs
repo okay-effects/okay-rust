@@ -29,8 +29,8 @@ fn zip<T: 'static>(a: Thunk<T>, b: Thunk<T>) -> Prog<Vec<(i64, i64)>, T> {
 #[test]
 fn generators_zipped_each_k_kept_in_a_value_resumed_by_the_others_turn() {
     type R = row![E];
-    let a: Thunk<Nil> = Rc::new(|| emits::<R, _>(Rc::new((1..=3).collect()), 0).handle(generate()));
-    let b: Thunk<Nil> = Rc::new(|| emits::<R, _>(Rc::new((10..=50).step_by(10).collect()), 0).handle(generate()));
+    let a: Thunk<Nil> = Rc::new(|| emits::<R, _>(Rc::new((1..=3).collect()), 0).handle(Emit::generate()));
+    let b: Thunk<Nil> = Rc::new(|| emits::<R, _>(Rc::new((10..=50).step_by(10).collect()), 0).handle(Emit::generate()));
     assert_eq!(zip(a, b).run(), vec![(1, 10), (2, 20), (3, 30)]);
 }
 
@@ -47,15 +47,15 @@ fn a_kept_k_resumed_under_the_handlers_of_the_row_outside_a_state_they_share() {
             .flat_map({ let vs = vs.clone(); move |_| emit::<i64, ET, _>(vs[i]) })
             .flat_map(move |_| counted(vs.clone(), i + 1))
     }
-    let a: Thunk<T> = Rc::new(|| counted(Rc::new(vec![1, 2]), 0).handle(generate()));
-    let b: Thunk<T> = Rc::new(|| counted(Rc::new((5..=9).collect()), 0).handle(generate()));
-    assert_eq!(zip(a, b).handle(state(0)).run(), (5, vec![(1, 5), (2, 6)]));
+    let a: Thunk<T> = Rc::new(|| counted(Rc::new(vec![1, 2]), 0).handle(Emit::generate()));
+    let b: Thunk<T> = Rc::new(|| counted(Rc::new((5..=9).collect()), 0).handle(Emit::generate()));
+    assert_eq!(zip(a, b).handle(State::run(0)).run(), (5, vec![(1, 5), (2, 6)]));
 }
 
 #[test]
 fn a_kept_k_resumed_twice() {
     type R = row![E];
-    let g = emits::<R, _>(Rc::new(vec![1, 2]), 0).handle(generate::<i64, Nil, ()>()).run();
+    let g = emits::<R, _>(Rc::new(vec![1, 2]), 0).handle(Emit::<i64>::generate::<(), Nil>()).run();
     let Gen::Next(1, next) = g else { panic!("not a first value: {g:?}") };
     let n2 = next.clone();
     let twice = next().flat_map(move |a| n2().map(move |b| (a.clone(), b)));
@@ -77,5 +77,5 @@ fn stack_safe_a_generator_of_many_values_drained() {
     fn many(i: i64) -> Prog<(), R> {
         if i == 0 { pure(()) } else { emit::<i64, R, _>(1).flat_map(move |_| many(i - 1)) }
     }
-    assert_eq!(drain(many(100_000).handle(generate()), 0).run(), 100_000);
+    assert_eq!(drain(many(100_000).handle(Emit::generate()), 0).run(), 100_000);
 }

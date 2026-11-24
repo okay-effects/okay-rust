@@ -9,7 +9,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use okay_machine::effects::{all, among, Choose};
+use okay_machine::effects::{among, Choose};
 
 use okay_machine::*;
 
@@ -82,13 +82,13 @@ fn is_odd<R: Member<Tick, I> + 'static, I: 'static>(i: i64) -> Prog<bool, R> {
     if i == 0 { pure(false) } else { perform::<R, Tick, I, i64>(|r| Tick::Value(i, r)).flat_map(move |_| is_even::<R, I>(i - 1)) }
 }
 
-fn ticking<T, A: 'static>() -> Handler<Tick, T, A, A> {
+fn ticking<T, A: 'static>() -> Handler<Tick, A, A, T> {
     Handler::in_place(|op| match op { Tick::Value(a, r) => r.give(a) }, |a| a)
 }
-fn ticking_k<T: 'static, A: 'static>() -> Handler<Tick, T, A, A> {
+fn ticking_k<T: 'static, A: 'static>() -> Handler<Tick, A, A, T> {
     Handler::new(pure, |op, k| match op { Tick::Value(a, r) => r.resume(&k, a) })
 }
-fn skipping<const I: usize, T, A: 'static>() -> Handler<Skip<I>, T, A, A> {
+fn skipping<const I: usize, T, A: 'static>() -> Handler<Skip<I>, A, A, T> {
     Handler::in_place(|op: Skip<I>| op.1.give(op.0), |a| a)
 }
 
@@ -134,7 +134,7 @@ fn telling(i: i64) -> Prog<(), Wr> {
 fn writer() -> usize {
     let log = Rc::new(RefCell::new(Vec::new()));
     let at_end = log.clone();
-    let h: Handler<Tell, Nil, (), (Vec<i64>, ())> = Handler::in_place(
+    let h: Handler<Tell, (), (Vec<i64>, ()), Nil> = Handler::in_place(
         move |op| match op { Tell::Put(i, r) => { log.borrow_mut().push(i); r.give(()) } },
         move |a| (at_end.borrow().clone(), a),
     );
@@ -155,7 +155,7 @@ fn counting(i: i64) -> Prog<i64, Sc> {
 }
 fn state_cell() -> i64 {
     let s = Rc::new(Cell::new(0i64));
-    let h: Handler<St, Nil, i64, i64> = Handler::in_place(
+    let h: Handler<St, i64, i64, Nil> = Handler::in_place(
         move |op| match op {
             St::Get(r) => r.give(s.get()),
             St::Put(i, r) => { s.set(i); r.give(()) }
@@ -164,7 +164,7 @@ fn state_cell() -> i64 {
     );
     counting(N).handle(h).run()
 }
-fn counter<T, A: 'static>(s0: i64) -> Handler<St, T, A, (i64, A)> {
+fn counter<T, A: 'static>(s0: i64) -> Handler<St, A, (i64, A), T> {
     Handler::stateful(s0, |s: &mut i64, op| match op {
         St::Get(r) => r.give(*s),
         St::Put(i, r) => { *s = i; r.give(()) }
@@ -185,9 +185,9 @@ fn counting_deep(i: i64) -> Prog<i64, Deep3> {
 fn state_deep() -> i64 {
     let log = Rc::new(RefCell::new(Vec::<i64>::new()));
     let at_end = log.clone();
-    let reader_at: Handler<Ask, row![Tell], (i64, i64), (i64, i64)> =
+    let reader_at: Handler<Ask, (i64, i64), (i64, i64), row![Tell]> =
         Handler::in_place(|op| match op { Ask::Get(r) => r.give(0) }, |a| a);
-    let writer_at: Handler<Tell, Nil, (i64, i64), (Vec<i64>, (i64, i64))> = Handler::in_place(
+    let writer_at: Handler<Tell, (i64, i64), (Vec<i64>, (i64, i64)), Nil> = Handler::in_place(
         move |op| match op { Tell::Put(i, r) => { log.borrow_mut().push(i); r.give(()) } },
         move |a| (at_end.borrow().clone(), a),
     );
@@ -211,15 +211,15 @@ fn right_maps() -> i64 { right_mapping(N).run() }
 // throwing: each raise handled where it is, a handler in the program, k not resumed
 
 type Th = row![Throws];
-fn catching() -> Handler<Throws, Nil, i64, Result<i64, String>> {
+fn catching() -> Handler<Throws, i64, Result<i64, String>, Nil> {
     Handler::abort(|a| pure(Ok(a)), |op| match op { Throws::Raise(e, _) => pure(Err(e)) })
 }
 /// the same, a handler dropping `k` by hand
-fn catching_k() -> Handler<Throws, Nil, i64, Result<i64, String>> {
+fn catching_k() -> Handler<Throws, i64, Result<i64, String>, Nil> {
     Handler::new(|a| pure(Ok(a)), |op, _k| match op { Throws::Raise(e, _) => pure(Err(e)) })
 }
 fn raising(i: i64, acc: i64) -> Prog<i64, Nil> { raising_by(catching, i, acc) }
-fn raising_by(h: fn() -> Handler<Throws, Nil, i64, Result<i64, String>>, i: i64, acc: i64) -> Prog<i64, Nil> {
+fn raising_by(h: fn() -> Handler<Throws, i64, Result<i64, String>, Nil>, i: i64, acc: i64) -> Prog<i64, Nil> {
     if i == 0 {
         pure(acc)
     } else {
@@ -237,7 +237,7 @@ fn throwing_k() -> i64 { raising_by(catching_k, N, 0).run() }
 
 fn choose() -> usize {
     let xs: Vec<i64> = (0..N).collect();
-    among::<i64, row![Choose], _>(xs).map(|x| x + 1).handle(all()).run().len()
+    among::<i64, row![Choose], _>(xs).map(|x| x + 1).handle(Choose::all()).run().len()
 }
 
 mod typed {

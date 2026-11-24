@@ -52,7 +52,7 @@ fn handlers_in_the_program_theirs_answered_in_it_the_others_given_back_past_them
         _ <- put::<i64, _, _>(s + n);
         yield s
     };
-    let handled = p.handle(all()).handle(state(1));
+    let handled = p.handle(Choose::all()).handle(State::run(1));
     assert_eq!(drive(handled.step(), 10), (vec!["true 1".to_string(), "false 11".to_string()], (21, vec![1, 11])));
 }
 

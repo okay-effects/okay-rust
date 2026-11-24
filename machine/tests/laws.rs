@@ -7,7 +7,7 @@ use okay_machine::*;
 type R = row![Reader<i64>, Writer<String>, State<i64>, Choose];
 
 fn run_r<A: Clone + 'static>(p: Prog<A, R>) -> Vec<(i64, (Vec<String>, A))> {
-    p.handle(reader(7)).handle(collect()).handle(state(0)).handle(all()).run()
+    p.handle(Reader::run(7)).handle(Writer::run()).handle(State::run(0)).handle(Choose::all()).run()
 }
 
 /// a program of each effect, its value from `x`

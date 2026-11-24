@@ -251,7 +251,7 @@ impl<R, A: 'static> Prog<A, R> {
     }
 
     /// a PLAIN effect `E` handled by `h`, wherever it is in the row: the row without it, `T`, the handler's
-    pub fn handle<E: Effect, Ix, B: 'static>(self, h: Handler<E, R::Rest, A, B>) -> Prog<B, R::Rest>
+    pub fn handle<E: Effect, Ix, B: 'static>(self, h: Handler<E, A, B, R::Rest>) -> Prog<B, R::Rest>
     where
         E::Kind: PlainKind,
         R: Member<E, Ix>,
@@ -262,7 +262,7 @@ impl<R, A: 'static> Prog<A, R> {
     /// a SENSITIVE effect handled — only under its audit: `Audited<S>` in the row, put there by `audit` or `observe`
     pub fn handle_audited<S: Effect<Kind = Sensitive>, Ix, B: 'static>(
         self,
-        h: Handler<S, R::Rest, A, B>,
+        h: Handler<S, A, B, R::Rest>,
     ) -> Prog<B, R::Rest>
     where
         R: Member<Audited<S>, Ix>,
@@ -272,7 +272,7 @@ impl<R, A: 'static> Prog<A, R> {
 
     /// a PLAIN effect INTERCEPTED for this program: its operations to `h`'s clauses, which run outside it — their own
     /// operations of `E` reach the handler further out. The row the same
-    pub fn intercept<E: Effect, Ix, B: 'static>(self, h: Handler<E, R, A, B>) -> Prog<B, R>
+    pub fn intercept<E: Effect, Ix, B: 'static>(self, h: Handler<E, A, B, R>) -> Prog<B, R>
     where
         E::Kind: PlainKind,
         R: Member<E, Ix>,
@@ -284,7 +284,7 @@ impl<R, A: 'static> Prog<A, R> {
     /// outside, `Audited<S>` in the row: no program there performs `S`, and only `handle_audited` handles it
     pub fn audit<S: Effect<Kind = Sensitive>, Ix, B: 'static>(
         self,
-        i: Interceptor<S, <R as Mark<S, Ix>>::Out, A, B>,
+        i: Interceptor<S, A, B, <R as Mark<S, Ix>>::Out>,
     ) -> Prog<B, <R as Mark<S, Ix>>::Out>
     where
         R: Mark<S, Ix>,
@@ -294,7 +294,7 @@ impl<R, A: 'static> Prog<A, R> {
 
     /// every operation OBSERVED on its way out, whatever its effect: `o`'s clause given it — told, passed on or
     /// refused. Outside, every sensitive effect of the row audited
-    pub fn observe<B: 'static>(self, o: Observer<<R as AuditAll>::Out, A, B>) -> Prog<B, <R as AuditAll>::Out>
+    pub fn observe<B: 'static>(self, o: Observer<A, B, <R as AuditAll>::Out>) -> Prog<B, <R as AuditAll>::Out>
     where
         R: AuditAll,
     {
@@ -463,7 +463,7 @@ impl AnyOp {
     }
 
     /// passed on, to the handler further out: its answer to the rest `k`
-    pub fn proceed<T, B>(self, k: &crate::handler::K<T, B>) -> Prog<B, T> {
+    pub fn proceed<T, B>(self, k: &crate::handler::K<B, T>) -> Prog<B, T> {
         let k0 = k.k.clone();
         let frame = Frame::new(move |v: Val| Node(Kind::Resume(k0.clone(), v)));
         Prog::of(Kind::Inject(self.0, frame))
@@ -473,7 +473,7 @@ impl AnyOp {
     /// resumed twice, twice)
     pub fn proceed_then<T: 'static, B>(
         self,
-        k: &crate::handler::K<T, B>,
+        k: &crate::handler::K<B, T>,
         after: impl Fn(String) -> Prog<(), T> + 'static,
     ) -> Prog<B, T> {
         let k0 = k.k.clone();
@@ -520,11 +520,11 @@ impl<S: Effect> Pass<S> {
 /// THE REST RESUMED by an operation's reply: `r.resume(&k, t)` — a program over the row outside the handler, of its
 /// answer (the machine's: its rest is data, resumed as many times as a handler wants)
 pub trait Resume<T> {
-    fn resume<R, B>(self, k: &crate::handler::K<R, B>, t: T) -> Prog<B, R>;
+    fn resume<R, B>(self, k: &crate::handler::K<B, R>, t: T) -> Prog<B, R>;
 }
 
 impl<T: 'static> Resume<T> for Reply<T> {
-    fn resume<R, B>(self, k: &crate::handler::K<R, B>, t: T) -> Prog<B, R> {
+    fn resume<R, B>(self, k: &crate::handler::K<B, R>, t: T) -> Prog<B, R> {
         Prog::of(Kind::Resume(k.k.clone(), Val::new(t)))
     }
 }

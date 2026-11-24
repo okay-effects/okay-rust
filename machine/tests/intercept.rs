@@ -29,7 +29,7 @@ fn balance<R: Member<Pay, I>, I>() -> Prog<i64, R> {
 }
 
 /// the bank: a balance, each transfer taken from it
-fn bank<T, A: 'static>(funds: i64) -> Handler<Pay, T, A, A> {
+fn bank<T, A: 'static>(funds: i64) -> Handler<Pay, A, A, T> {
     Handler::stateful(funds, |b: &mut i64, op| match op {
         Pay::Transfer(to, amount, r) => {
             *b -= amount;
@@ -47,7 +47,7 @@ fn masked(account: &str) -> String {
 
 /// THE AUDIT OF PAYMENTS: a transfer over the limit refused, raised; the account written one way (changed before it
 /// is passed on); each one told, its account masked, with its receipt; the balance told with its value
-fn guarded<T, I1, I2, I3, A: 'static>(limit: i64) -> Interceptor<Pay, T, A, A>
+fn guarded<T, I1, I2, I3, A: 'static>(limit: i64) -> Interceptor<Pay, A, A, T>
 where
     T: Member<Audited<Pay>, I1> + Member<Throws<String>, I2> + Member<Audit, I3> + 'static,
     I1: 'static,
@@ -91,7 +91,7 @@ fn a_sensitive_effect_under_its_audit_passed_on_changed_told_masked_refused_over
     let (trail, result) = p
         .audit::<Pay, _, _>(guarded(1000))
         .handle_audited::<Pay, _, _>(bank(1000))
-        .handle(either())
+        .handle(Throws::run())
         .handle(trail())
         .run();
     assert_eq!(
@@ -110,7 +110,7 @@ fn a_sensitive_effect_under_its_audit_passed_on_changed_told_masked_refused_over
 #[test]
 fn a_plain_effect_intercepted_for_a_part_of_the_program() {
     type R = row![Writer<String>];
-    fn shouting<A: 'static>() -> Handler<Writer<String>, R, A, A> {
+    fn shouting<A: 'static>() -> Handler<Writer<String>, A, A, R> {
         Handler::new(pure, |op: Writer<String>, k| match op {
             Writer::Tell(s, r) => tell::<String, R, _>(s.to_uppercase()).flat_map(move |_| r.resume(&k, ())),
         })
@@ -119,11 +119,11 @@ fn a_plain_effect_intercepted_for_a_part_of_the_program() {
         tell("a".to_string());
         tell::<String, R, _>("b".to_string()).intercept(shouting())
     };
-    assert_eq!(p.handle(collect()).run(), (vec!["a".to_string(), "B".to_string()], ()));
+    assert_eq!(p.handle(Writer::run()).run(), (vec!["a".to_string(), "B".to_string()], ()));
 }
 
 /// an observer telling every operation and its answer to the trail
-fn telling<T: Member<Audit, I> + 'static, I: 'static, A: 'static>() -> Observer<T, A, A> {
+fn telling<T: Member<Audit, I> + 'static, I: 'static, A: 'static>() -> Observer<A, A, T> {
     Observer::new(pure, |op, k| {
         let line = format!("{} {}", op.effect(), op.describe());
         record::<T, I>(line).flat_map(move |_| op.clone().proceed_then(&k, |answer| record::<T, I>(format!("  → {answer}"))))
@@ -142,8 +142,8 @@ fn an_observer_sees_every_operation_of_every_effect_and_its_answer() {
     };
     let (trail, (_, receipt)) = p
         .observe(telling())
-        .handle(reader(5))
-        .handle(state(1))
+        .handle(Reader::run(5))
+        .handle(State::run(1))
         .handle_audited::<Pay, _, _>(bank(100))
         .handle(trail())
         .run();
@@ -164,7 +164,7 @@ fn an_observer_sees_every_operation_of_every_effect_and_its_answer() {
 #[test]
 fn an_observer_refusing_a_sensitive_effect_a_read_only_run() {
     type R = row![Reader<i64>, Pay, Throws<String>, Audit];
-    fn read_only<T, I1, I2, A: 'static>() -> Observer<T, A, A>
+    fn read_only<T, I1, I2, A: 'static>() -> Observer<A, A, T>
     where
         T: Member<Throws<String>, I1> + Member<Audit, I2> + 'static,
         I1: 'static,
@@ -185,9 +185,9 @@ fn an_observer_refusing_a_sensitive_effect_a_read_only_run() {
     };
     let (trail, result) = p
         .observe(read_only())
-        .handle(reader(5))
+        .handle(Reader::run(5))
         .handle_audited::<Pay, _, _>(bank(100))
-        .handle(either())
+        .handle(Throws::run())
         .handle(trail())
         .run();
     assert_eq!(trail, vec!["read-only: Transfer(\"acct\", 5, _) refused"]);
@@ -199,7 +199,7 @@ fn an_observer_refusing_a_sensitive_effect_a_read_only_run() {
 fn an_answer_told_each_time_the_rest_gets_it() {
     type R = row![Choose, Audit];
     let p: Prog<bool, R> = flip();
-    let (trail, paths) = p.observe(telling()).handle(all()).handle(trail()).run();
+    let (trail, paths) = p.observe(telling()).handle(Choose::all()).handle(trail()).run();
     assert_eq!(paths, vec![true, false]);
     assert_eq!(trail, vec!["Choose Among(2, _)", "  → 0", "  → 1"]);
 }

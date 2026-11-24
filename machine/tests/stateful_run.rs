@@ -21,11 +21,11 @@ fn binds_nested_to_the_left_and_to_the_right_100_000_operations_each_constant_st
     for _ in 0..100_000 {
         left = left.flat_map(|_| get_s().flat_map(|s| put_s(s + 1)).map(|_| 0));
     }
-    assert_eq!(left.handle(state(0)).run(), (100_000, 0));
+    assert_eq!(left.handle(State::run(0)).run(), (100_000, 0));
     fn right(i: i64) -> Prog<i64, S> {
         if i == 0 { get_s() } else { get_s().flat_map(|s| put_s(s + 1)).flat_map(move |_| right(i - 1)) }
     }
-    assert_eq!(right(100_000).handle(state(5)).run(), (100_005, 100_005));
+    assert_eq!(right(100_000).handle(State::run(5)).run(), (100_005, 100_005));
 }
 
 #[test]
@@ -34,17 +34,17 @@ fn a_handler_inside_the_state_as_it_was() {
     let p: Prog<i64, S> = get_s().flat_map(|s| put_s(s + 10)).flat_map(|_| {
         tell::<String, SL, _>("in".into())
             .flat_map(|_| get::<i64, SL, _>())
-            .handle(collect())
+            .handle(Writer::run())
             .flat_map(|(l, s): (Vec<String>, i64)| put_s(s * 2).map(move |_| l.len() as i64))
     });
-    assert_eq!(p.handle(state(1)).run(), (22, 1));
+    assert_eq!(p.handle(State::run(1)).run(), (22, 1));
 }
 
 #[test]
 fn a_panic_in_a_user_function_out_of_the_run() {
     let p = || get_s().map(|s| if s > 0 { panic!("too big: {s}") } else { s });
-    assert!(catch_unwind(AssertUnwindSafe(|| p().handle(state(1)).run())).is_err());
-    assert_eq!(p().handle(state(0)).run(), (0, 0));
+    assert!(catch_unwind(AssertUnwindSafe(|| p().handle(State::run(1)).run())).is_err());
+    assert_eq!(p().handle(State::run(0)).run(), (0, 0));
 }
 
 #[test]
@@ -62,5 +62,5 @@ fn a_choice_inside_the_states_program_every_path_the_state_threaded() {
     let p: Prog<i64, CS> = flip::<CS, _>().flat_map(|b| {
         get::<i64, CS, _>().flat_map(move |s| put::<i64, CS, _>(s + if b { 1 } else { 10 }).map(move |_| s))
     });
-    assert_eq!(p.handle(all()).handle(state(0)).run(), (11, vec![0, 1]));
+    assert_eq!(p.handle(Choose::all()).handle(State::run(0)).run(), (11, vec![0, 1]));
 }

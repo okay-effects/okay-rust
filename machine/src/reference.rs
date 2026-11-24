@@ -234,11 +234,12 @@ fn build(p: &Rc<P>) -> Prog<i64, R4> {
             build(l).flat_map(move |x| if x % 2 == 0 { build(&rr).map(move |y| y + x) } else { crate::pure(x - c) })
         }
         P::Defer(c, inner) => { let (c, inner) = (*c, b(inner)); crate::defer(move || build(&inner)).map(move |x| x + c) }
-        P::Reader(c, body) => build(body).intercept(reader(*c)),
-        P::State(c, body) => build(body).intercept(state(*c)).map(|(s, a)| s + a),
-        P::StateSnd(c, body) => build(body).intercept(state(*c)).map(|(_, a)| a),
-        P::Choose(body) => build(body).intercept(all()).map(|xs: Vec<i64>| xs.iter().sum()),
-        P::Attempt(body) => build(body).intercept(either()).map(|e: Result<i64, String>| e.unwrap_or_else(|s| s.len() as i64)),
+        P::Reader(c, body) => build(body).intercept(Reader::run(*c)),
+        P::State(c, body) => build(body).intercept(State::run(*c)).map(|(s, a)| s + a),
+        P::StateSnd(c, body) => build(body).intercept(State::run(*c)).map(|(_, a)| a),
+        P::Choose(body) => build(body).intercept(Choose::all()).map(|xs: Vec<i64>| xs.iter().sum()),
+        P::Attempt(body) => build(body).intercept(Throws::run())
+            .map(|e: Result<i64, String>| e.unwrap_or_else(|s| s.len() as i64)),
         P::AskSt(c, twice, body) => {
             let (n, twice) = (*c, *twice);
             build(body).intercept(Handler::new(|a: i64| crate::pure(a * 2), move |op: Reader<i64>, k| match op {
@@ -274,7 +275,7 @@ fn build(p: &Rc<P>) -> Prog<i64, R4> {
 type Answers = (i64, Vec<Result<i64, String>>);
 
 fn closed(p: &Rc<P>) -> Prog<Answers, crate::Nil> {
-    build(p).handle(either()).handle(all()).handle(state(1)).handle(reader(2))
+    build(p).handle(Throws::run()).handle(Choose::all()).handle(State::run(1)).handle(Reader::run(2))
 }
 
 fn fnv(s: &str) -> u64 {
@@ -298,7 +299,7 @@ fn effects_random_programs_the_choice_outermost_each_path_its_own_state() {
     let mut r = Rand(19);
     for i in 1..=500 {
         let p = random(&mut r, 4);
-        let q = || build(&p).handle(reader(3)).handle(either()).handle(state(0)).handle(all());
+        let q = || build(&p).handle(Reader::run(3)).handle(Throws::run()).handle(State::run(0)).handle(Choose::all());
         assert_eq!(q().run(), value(q()), "program {i}");
     }
 }
@@ -308,7 +309,7 @@ fn step_random_programs_stepped_their_asks_answered_by_the_driver_as_the_meaning
     let mut r = Rand(37);
     for i in 1..=300 {
         let p = random(&mut r, 4);
-        let open = || build(&p).handle(either()).handle(all()).handle(state(1));
+        let open = || build(&p).handle(Throws::run()).handle(Choose::all()).handle(State::run(1));
         let mut s = open().step();
         let driven = loop {
             s = match s {
@@ -321,7 +322,7 @@ fn step_random_programs_stepped_their_asks_answered_by_the_driver_as_the_meaning
                 Step::Cancelled => panic!("cancelled"),
             }
         };
-        assert_eq!(driven, value(open().handle(reader(2))), "program {i}");
+        assert_eq!(driven, value(open().handle(Reader::run(2))), "program {i}");
     }
 }
 
@@ -489,10 +490,10 @@ fn build_c(p: &Rc<C>) -> B {
         }
         C::Under(how, c, u) => {
             let (c, c32) = (*c, *c as i32);
-            fn reading<T>(c: i32) -> Passing<Reader<i32>, T, i64, i64> {
+            fn reading<T>(c: i32) -> Passing<Reader<i32>, i64, i64, T> {
                 Passing::in_place(move |op: Reader<i32>| match op { Reader::Ask(r) => r.give(c) }, |a| a)
             }
-            fn stating<T>(c: i64) -> Passing<State<i64>, T, i64, (i64, i64)> {
+            fn stating<T>(c: i64) -> Passing<State<i64>, i64, (i64, i64), T> {
                 Passing::stateful(c, |s: &mut i64, op: State<i64>| match op {
                     State::Get(r) => r.give(*s),
                     State::Put(n, r) => { *s = n; r.give(()) }
@@ -560,7 +561,7 @@ fn build_u(p: &Rc<U>) -> BQ {
 }
 
 fn controlled(p: &Rc<C>) -> Prog<Vec<i64>, crate::Nil> {
-    dollar(build_c(p), crate::pure).handle(all()).handle(reader(5))
+    dollar(build_c(p), crate::pure).handle(Choose::all()).handle(Reader::run(5))
 }
 
 #[test]

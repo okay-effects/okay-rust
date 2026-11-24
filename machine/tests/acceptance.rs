@@ -19,7 +19,7 @@ fn counted<R: Member<Choose, I1> + Member<S, I2> + 'static, I1: 'static, I2: 'st
 }
 
 /// a cell: one for the run, the paths share it — answering in place, its state its own
-fn cell<T, A: 'static>(s0: i64) -> Handler<S, T, A, (i64, A)> {
+fn cell<T, A: 'static>(s0: i64) -> Handler<S, A, (i64, A), T> {
     let c = Rc::new(Cell::new(s0));
     let at_end = c.clone();
     Handler::in_place(
@@ -37,14 +37,17 @@ fn cell<T, A: 'static>(s0: i64) -> Handler<S, T, A, (i64, A)> {
 /// "D. state outside the choice: threaded through the paths"
 #[test]
 fn d_state_outside_the_choice_threaded_through_the_paths() {
-    assert_eq!(counted::<row![Choose, S], _, _>().handle(all()).handle(state(0)).run(), (6, vec![1, 3, 6]));
+    assert_eq!(
+        counted::<row![Choose, S], _, _>().handle(Choose::all()).handle(State::run(0)).run(),
+        (6, vec![1, 3, 6])
+    );
 }
 
 /// "D. state inside the choice: each path its own"
 #[test]
 fn d_state_inside_the_choice_each_path_its_own() {
     assert_eq!(
-        counted::<row![S, Choose], _, _>().handle(state(0)).handle(all()).run(),
+        counted::<row![S, Choose], _, _>().handle(State::run(0)).handle(Choose::all()).run(),
         vec![(1, 1), (2, 2), (3, 3)]
     );
 }
@@ -53,7 +56,7 @@ fn d_state_inside_the_choice_each_path_its_own() {
 #[test]
 fn d_a_cell_inside_the_choice_one_for_the_run() {
     assert_eq!(
-        counted::<row![S, Choose], _, _>().handle(cell(0)).handle(all()).run(),
+        counted::<row![S, Choose], _, _>().handle(cell(0)).handle(Choose::all()).run(),
         vec![(1, 1), (3, 3), (6, 6)]
     );
 }
@@ -69,7 +72,7 @@ impl Effect for Two {
 /// "A/D. the rests made first, resumed later and in reverse: each its state as it was when captured"
 #[test]
 fn ad_the_rests_resumed_in_reverse_each_its_state_as_it_was() {
-    fn twice<T: 'static>() -> Handler<Two, T, i64, Vec<i64>> {
+    fn twice<T: 'static>() -> Handler<Two, i64, Vec<i64>, T> {
         Handler::new(|a| pure(vec![a]), |op, k| match op {
             Two::Pick(r) => {
                 // the second first, then the first: each from the state as it was when the rest was taken
@@ -89,7 +92,7 @@ fn ad_the_rests_resumed_in_reverse_each_its_state_as_it_was() {
         }
     }
     assert_eq!(
-        picked::<row![S, Two], _, _>().handle(state(10)).map(|(_, t)| t).handle(twice()).run(),
+        picked::<row![S, Two], _, _>().handle(State::run(10)).map(|(_, t)| t).handle(twice()).run(),
         vec![11, 12]
     );
 }
@@ -100,7 +103,7 @@ fn f_flat_map_and_filter_over_100_000_empties_in_constant_stack() {
     type R = row![Choose];
     let p: Prog<i64, R> = among((1..=100_000).collect())
         .flat_map(|x: i64| if x % 1000 == 0 { pure(x) } else { fail() });
-    assert_eq!(p.handle(all()).run().len(), 100);
+    assert_eq!(p.handle(Choose::all()).run().len(), 100);
 }
 
 /// "F. binds nested to the left, 100 000, in constant stack"

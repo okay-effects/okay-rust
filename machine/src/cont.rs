@@ -162,7 +162,7 @@ impl<R, I, O, A: 'static> Cont<R, I, O, A> {
 
     /// an effect handled under the `$` by a handler LEAVING THE REST (answering, stateful, translating): a shift0
     /// under it takes it into its `k`. One taking the rest is refused: its delimiter would be one among the program's
-    pub fn handle<E: Effect, Ix, B: 'static>(self, h: Passing<E, R::Rest, A, B>) -> Cont<R::Rest, I, O, B>
+    pub fn handle<E: Effect, Ix, B: 'static>(self, h: Passing<E, A, B, R::Rest>) -> Cont<R::Rest, I, O, B>
     where
         E::Kind: PlainKind,
         R: Member<E, Ix>,
@@ -194,9 +194,9 @@ impl<R, I, O, A: 'static> Cont<R, I, O, A> {
 }
 
 /// A HANDLER LEAVING THE REST: one that may be under a `$` — answering in place, with a state, translating
-pub struct Passing<E, T, A, B>(Handler<E, T, A, B>);
+pub struct Passing<E, A, B, R>(Handler<E, A, B, R>);
 
-impl<E: Effect, T, A: 'static, B: 'static> Passing<E, T, A, B> {
+impl<E: Effect, R, A: 'static, B: 'static> Passing<E, A, B, R> {
     pub fn in_place(value: impl Fn(E) -> crate::Answer + 'static, ret: impl Fn(A) -> B + 'static) -> Self {
         Passing(Handler::in_place(value, ret))
     }
@@ -214,14 +214,14 @@ impl<E: Effect, T, A: 'static, B: 'static> Passing<E, T, A, B> {
     }
 }
 
-impl<E: Effect, T, A: 'static> Passing<E, T, A, A> {
-    pub fn translating(apply: impl Fn(E) -> Prog<crate::Answer, T> + 'static) -> Self {
+impl<E: Effect, R, A: 'static> Passing<E, A, A, R> {
+    pub fn translating(apply: impl Fn(E) -> Prog<crate::Answer, R> + 'static) -> Self {
         Passing(Handler::translating(apply))
     }
 }
 
-impl<E, T, A, B> From<Passing<E, T, A, B>> for Handler<E, T, A, B> {
-    fn from(p: Passing<E, T, A, B>) -> Self {
+impl<E, R, A, B> From<Passing<E, A, B, R>> for Handler<E, A, B, R> {
+    fn from(p: Passing<E, A, B, R>) -> Self {
         p.0
     }
 }

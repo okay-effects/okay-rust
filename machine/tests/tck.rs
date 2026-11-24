@@ -95,19 +95,23 @@ fn build(t: &Rc<T>) -> Prog<i32, R> {
         T::Seq(a, b) => { let b = b.clone(); build(a).flat_map(move |_| build(&b)) }
         T::Add(a, b) => { let b = b.clone(); build(a).flat_map(move |i| build(&b).map(move |j| i.wrapping_add(j))) }
         T::WriterH(0, body) => build(body)
-            .intercept(collect::<i64, R, i32>())
+            .intercept(Writer::<i64>::run::<i32, R>())
             .map(|(log, v)| writer_value(log.into_iter().map(|w| w as i32).collect(), v)),
-        T::WriterH(_, body) => build(body).intercept(collect::<i32, R, i32>()).map(|(log, v)| writer_value(log, v)),
+        T::WriterH(_, body) => build(body).intercept(Writer::<i32>::run::<i32, R>())
+            .map(|(log, v)| writer_value(log, v)),
         T::StateH(0, s0, body) => build(body).intercept(cell::<i64>(*s0 as i64)).map(|(s, v)| v.wrapping_mul(10).wrapping_add(s as i32)),
         T::StateH(_, s0, body) => build(body).intercept(cell::<i32>(*s0)).map(|(s, v)| v.wrapping_mul(10).wrapping_add(s)),
-        T::ThrowsH(0, body) => build(body).intercept(either::<i64, R, i32>()).map(|r| r.unwrap_or_else(|e| -1 - e as i32)),
-        T::ThrowsH(_, body) => build(body).intercept(either::<i32, R, i32>()).map(|r| r.unwrap_or_else(|e| -1 - e)),
-        T::ChooseH(body) => build(body).intercept(all::<R, i32>()).map(|vs| vs.iter().fold(0i32, |s, v| s.wrapping_add(*v))),
+        T::ThrowsH(0, body) => build(body).intercept(Throws::<i64>::run::<i32, R>())
+            .map(|r| r.unwrap_or_else(|e| -1 - e as i32)),
+        T::ThrowsH(_, body) => build(body).intercept(Throws::<i32>::run::<i32, R>())
+            .map(|r| r.unwrap_or_else(|e| -1 - e)),
+        T::ChooseH(body) => build(body).intercept(Choose::all::<i32, R>()).map(|vs| vs.iter()
+            .fold(0i32, |s, v| s.wrapping_add(*v))),
     }
 }
 
 /// the TCK's state: a cell, answered in place — every resumption sees what the last left
-fn cell<S: Copy + std::fmt::Debug + 'static>(s0: S) -> Handler<State<S>, R, i32, (S, i32)> {
+fn cell<S: Copy + std::fmt::Debug + 'static>(s0: S) -> Handler<State<S>, i32, (S, i32), R> {
     let s = Rc::new(std::cell::Cell::new(s0));
     let at_end = s.clone();
     Handler::in_place(move |op: State<S>| match op {
@@ -118,13 +122,13 @@ fn cell<S: Copy + std::fmt::Debug + 'static>(s0: S) -> Handler<State<S>, R, i32,
 
 /// a program of the row closed: its effects' handlers outside, never reached (every operation is the wrapper's)
 fn closed(p: Prog<i32, R>) -> i32 {
-    p.handle(collect::<i32, _, i32>()).map(|(_, v)| v)
-        .handle(collect::<i64, _, i32>()).map(|(_, v)| v)
-        .handle(state::<i32, _, i32>(0)).map(|(_, v)| v)
-        .handle(state::<i64, _, i32>(0)).map(|(_, v)| v)
-        .handle(either::<i32, _, i32>()).map(|r| r.unwrap_or(i32::MIN))
-        .handle(either::<i64, _, i32>()).map(|r| r.unwrap_or(i32::MIN))
-        .handle(all::<_, i32>()).map(|vs| vs[0])
+    p.handle(Writer::<i32>::run::<i32, _>()).map(|(_, v)| v)
+        .handle(Writer::<i64>::run::<i32, _>()).map(|(_, v)| v)
+        .handle(State::<i32>::run::<i32, _>(0)).map(|(_, v)| v)
+        .handle(State::<i64>::run::<i32, _>(0)).map(|(_, v)| v)
+        .handle(Throws::<i32>::run::<i32, _>()).map(|r| r.unwrap_or(i32::MIN))
+        .handle(Throws::<i64>::run::<i32, _>()).map(|r| r.unwrap_or(i32::MIN))
+        .handle(Choose::all::<i32, _>()).map(|vs| vs[0])
         .run()
 }
 

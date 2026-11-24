@@ -17,11 +17,24 @@ pub fn ask<V: Clone + Debug + 'static, R: Member<Reader<V>, Ix>, Ix>() -> Prog<V
     perform(Reader::Ask)
 }
 
-/// each ask answered `v`, in place
-pub fn reader<V: Clone + Debug + 'static, T, A: 'static>(v: V) -> Handler<Reader<V>, T, A, A> {
-    Handler::in_place(move |op| match op {
-        Reader::Ask(r) => r.give(v.clone()),
-    }, |a| a)
+/// The reader's handler, `Reader::run(v)` (the trait in scope with `effects::*`: `Reader` is okay's)
+pub trait ReaderRun<V>: Effect + Sized {
+    /// each ask answered `v`, in place
+    fn run<A: 'static, R>(v: V) -> Handler<Self, A, A, R>;
+}
+
+impl<V: Clone + Debug + 'static> ReaderRun<V> for Reader<V> {
+    fn run<A: 'static, R>(v: V) -> Handler<Self, A, A, R> {
+        Handler::in_place(move |op| match op {
+            Reader::Ask(r) => r.give(v.clone()),
+        }, |a| a)
+    }
+}
+
+/// the old name of [`ReaderRun::run`]
+#[deprecated(note = "the family's name is `Reader::run`")]
+pub fn reader<V: Clone + Debug + 'static, R, A: 'static>(v: V) -> Handler<Reader<V>, A, A, R> {
+    Reader::run(v)
 }
 
 // STATE: a value read and written
@@ -40,15 +53,28 @@ pub fn modify<S: Clone + Debug + 'static, R: Member<State<S>, Ix> + 'static, Ix:
     get::<S, R, Ix>().flat_map(move |s| put::<S, R, Ix>(f(s)))
 }
 
-/// the state from `s0`: the last state and the value
-pub fn state<S: Clone + Debug + 'static, T, A: 'static>(s0: S) -> Handler<State<S>, T, A, (S, A)> {
-    Handler::stateful(s0, |s: &mut S, op| match op {
-        State::Get(r) => r.give(s.clone()),
-        State::Put(n, r) => {
-            *s = n;
-            r.give(())
-        }
-    }, |s, a| (s, a))
+/// The state's handler, `State::run(s0)` (the trait in scope with `effects::*`: `State` is okay's)
+pub trait StateRun<S>: Effect + Sized {
+    /// the state from `s0`: the last state and the value
+    fn run<A: 'static, R>(s0: S) -> Handler<Self, A, (S, A), R>;
+}
+
+impl<S: Clone + Debug + 'static> StateRun<S> for State<S> {
+    fn run<A: 'static, R>(s0: S) -> Handler<Self, A, (S, A), R> {
+        Handler::stateful(s0, |s: &mut S, op| match op {
+            State::Get(r) => r.give(s.clone()),
+            State::Put(n, r) => {
+                *s = n;
+                r.give(())
+            }
+        }, |s, a| (s, a))
+    }
+}
+
+/// the old name of [`StateRun::run`]
+#[deprecated(note = "the family's name is `State::run`")]
+pub fn state<S: Clone + Debug + 'static, R, A: 'static>(s0: S) -> Handler<State<S>, A, (S, A), R> {
+    State::run(s0)
 }
 
 // WRITER: values told
@@ -58,14 +84,27 @@ pub fn tell<W: Clone + Debug + 'static, R: Member<Writer<W>, Ix>, Ix>(w: W) -> P
     perform(|r| Writer::Tell(w, r))
 }
 
-/// the told, in order, and the value
-pub fn collect<W: Clone + Debug + 'static, T, A: 'static>() -> Handler<Writer<W>, T, A, (Vec<W>, A)> {
-    Handler::stateful(Vec::new(), |s: &mut Vec<W>, op| match op {
-        Writer::Tell(w, r) => {
-            s.push(w);
-            r.give(())
-        }
-    }, |s, a| (s, a))
+/// The writer's handler, `Writer::run()` (the trait in scope with `effects::*`: `Writer` is okay's)
+pub trait WriterRun<W>: Effect + Sized {
+    /// the told, in order, and the value
+    fn run<A: 'static, R>() -> Handler<Self, A, (Vec<W>, A), R>;
+}
+
+impl<W: Clone + Debug + 'static> WriterRun<W> for Writer<W> {
+    fn run<A: 'static, R>() -> Handler<Self, A, (Vec<W>, A), R> {
+        Handler::stateful(Vec::new(), |s: &mut Vec<W>, op| match op {
+            Writer::Tell(w, r) => {
+                s.push(w);
+                r.give(())
+            }
+        }, |s, a| (s, a))
+    }
+}
+
+/// the old name of [`WriterRun::run`]
+#[deprecated(note = "the family's name is `Writer::run`")]
+pub fn collect<W: Clone + Debug + 'static, R, A: 'static>() -> Handler<Writer<W>, A, (Vec<W>, A), R> {
+    Writer::run()
 }
 
 // CHOICE: one of several, each path through the choices a value — multi-shot, the rest resumed for each
@@ -96,20 +135,47 @@ pub fn fail<A: 'static, R: Member<Choose, Ix>, Ix>() -> Prog<A, R> {
     perform(Choose::Fail).map(|n: Never| match n {})
 }
 
-/// every value of the body, one per path, in order
-pub fn all<T: 'static, A: Clone + 'static>() -> Handler<Choose, T, A, Vec<A>> {
-    Handler::new(|a| pure(vec![a]), |op, k| match op {
-        Choose::Among(n, r) => paths(k, r, 0, n).map(|mut v: Vec<A>| {
-            v.reverse();
-            v
-        }),
-        Choose::Fail(_) => pure(Vec::new()),
+impl Choose {
+    /// every value of the body, one per path, in order — the rest resumed for each choice (multi-shot, a real `k`)
+    pub fn all<A: Clone + 'static, R: 'static>() -> Handler<Choose, A, Vec<A>, R> {
+        Handler::new(|a| pure(vec![a]), |op, k| match op {
+            Choose::Among(n, r) => paths(k, r, 0, n).map(|mut v: Vec<A>| {
+                v.reverse();
+                v
+            }),
+            Choose::Fail(_) => pure(Vec::new()),
+        })
+    }
+
+    /// the first value of the body, the paths tried in order until one gives a value — `None` if none does
+    pub fn first<A: 'static, R: 'static>() -> Handler<Choose, A, Option<A>, R> {
+        Handler::new(|a| pure(Some(a)), |op, k| match op {
+            Choose::Among(n, r) => first_of(k, r, 0, n),
+            Choose::Fail(_) => pure(None),
+        })
+    }
+}
+
+/// the old name of [`Choose::all`]
+#[deprecated(note = "the family's name is `Choose::all`")]
+pub fn all<R: 'static, A: Clone + 'static>() -> Handler<Choose, A, Vec<A>, R> {
+    Choose::all()
+}
+
+/// the first path from the `i`-th on that gives a value
+fn first_of<R: 'static, A: 'static>(k: K<Option<A>, R>, r: Reply<usize>, i: usize, n: usize) -> Prog<Option<A>, R> {
+    if i == n {
+        return pure(None);
+    }
+    r.resume(&k, i).flat_map(move |here: Option<A>| match here {
+        Some(a) => pure(Some(a)),
+        None => first_of(k.clone(), r, i + 1, n),
     })
 }
 
 /// the paths from the `i`-th on, their values reversed: each path's added at the end, the last first — no list
 /// copied but each path's own
-fn paths<T: 'static, A: Clone + 'static>(k: K<T, Vec<A>>, r: Reply<usize>, i: usize, n: usize) -> Prog<Vec<A>, T> {
+fn paths<T: 'static, A: Clone + 'static>(k: K<Vec<A>, T>, r: Reply<usize>, i: usize, n: usize) -> Prog<Vec<A>, T> {
     if i == n {
         return pure(Vec::new());
     }
@@ -128,11 +194,24 @@ pub fn raise<E: Clone + Debug + 'static, A: 'static, R: Member<Throws<E>, Ix>, I
     perform(|r| Throws::Raise(e, r)).map(|n: Never| match n {})
 }
 
-/// the value, or the error raised
-pub fn either<E: Clone + Debug + 'static, T, A: 'static>() -> Handler<Throws<E>, T, A, Result<A, E>> {
-    Handler::abort(|a| pure(Ok(a)), |op| match op {
-        Throws::Raise(e, _) => pure(Err(e)),
-    })
+/// The handler of raises, `Throws::run()` (the trait in scope with `effects::*`: `Throws` is okay's)
+pub trait ThrowsRun<E>: Effect + Sized {
+    /// the value, or the error raised — the rest dropped
+    fn run<A: 'static, R>() -> Handler<Self, A, Result<A, E>, R>;
+}
+
+impl<E: Clone + Debug + 'static> ThrowsRun<E> for Throws<E> {
+    fn run<A: 'static, R>() -> Handler<Self, A, Result<A, E>, R> {
+        Handler::abort(|a| pure(Ok(a)), |op| match op {
+            Throws::Raise(e, _) => pure(Err(e)),
+        })
+    }
+}
+
+/// the old name of [`ThrowsRun::run`]
+#[deprecated(note = "the family's name is `Throws::run`")]
+pub fn either<E: Clone + Debug + 'static, R, A: 'static>() -> Handler<Throws<E>, A, Result<A, E>, R> {
+    Throws::run()
 }
 
 // EMIT: values given out one at a time — a generator (`k` kept in the answer, the next step) or a collection
@@ -174,21 +253,35 @@ impl<W: Debug, T> Debug for Gen<W, T> {
     }
 }
 
-/// the body as a lazy generator: each value given back with the rest of the program, not resumed until pulled
-pub fn generate<W: Clone + Debug + 'static, T: 'static, A: 'static>() -> Handler<Emit<W>, T, A, Gen<W, T>> {
-    Handler::new(|_| pure(Gen::Done), |op, k| match op {
-        Emit::Value(w, r) => pure(Gen::Next(w, std::rc::Rc::new(move || r.resume(&k, ())))),
-    })
+impl<W: Clone + Debug + 'static> Emit<W> {
+    /// the body as a lazy generator: each value given back with the rest of the program, not resumed until pulled
+    pub fn generate<A: 'static, R: 'static>() -> Handler<Emit<W>, A, Gen<W, R>, R> {
+        Handler::new(|_| pure(Gen::Done), |op, k| match op {
+            Emit::Value(w, r) => pure(Gen::Next(w, std::rc::Rc::new(move || r.resume(&k, ())))),
+        })
+    }
+
+    /// every value emitted, in order, and the body's value
+    pub fn collect<A: 'static, R>() -> Handler<Emit<W>, A, (Vec<W>, A), R> {
+        Handler::stateful(Vec::new(), |s: &mut Vec<W>, op| match op {
+            Emit::Value(w, r) => {
+                s.push(w);
+                r.give(())
+            }
+        }, |s, a| (s, a))
+    }
 }
 
-/// every value emitted, in order, and the body's value
-pub fn collect_emitted<W: Clone + Debug + 'static, T, A: 'static>() -> Handler<Emit<W>, T, A, (Vec<W>, A)> {
-    Handler::stateful(Vec::new(), |s: &mut Vec<W>, op| match op {
-        Emit::Value(w, r) => {
-            s.push(w);
-            r.give(())
-        }
-    }, |s, a| (s, a))
+/// the old name of [`Emit::generate`]
+#[deprecated(note = "the family's name is `Emit::generate`")]
+pub fn generate<W: Clone + Debug + 'static, R: 'static, A: 'static>() -> Handler<Emit<W>, A, Gen<W, R>, R> {
+    Emit::generate()
+}
+
+/// the old name of [`Emit::collect`]
+#[deprecated(note = "the family's name is `Emit::collect`")]
+pub fn collect_emitted<W: Clone + Debug + 'static, R, A: 'static>() -> Handler<Emit<W>, A, (Vec<W>, A), R> {
+    Emit::collect()
 }
 
 // SHIFTS: delimited control as an effect of the row — its answer `S` fixed, `T` the row outside its `reset`;
@@ -198,7 +291,7 @@ pub fn collect_emitted<W: Clone + Debug + 'static, T, A: 'static>() -> Handler<E
 type ShiftK<T, S> = std::rc::Rc<dyn Fn(crate::eff::Val) -> Prog<S, T>>;
 
 type ShiftBody<T, S> = std::rc::Rc<dyn Fn(ShiftK<T, S>) -> Prog<S, T>>;
-type ShiftResume<T, S> = std::rc::Rc<dyn Fn(&K<T, S>, crate::eff::Val) -> Prog<S, T>>;
+type ShiftResume<T, S> = std::rc::Rc<dyn Fn(&K<S, T>, crate::eff::Val) -> Prog<S, T>>;
 
 pub struct Shifts<S, T> {
     body: ShiftBody<T, S>,
@@ -228,7 +321,7 @@ pub fn shift0<S: 'static, T: 'static, A: Clone + Debug + 'static, R: Member<Shif
     let f = std::rc::Rc::new(f);
     perform(move |r: Reply<A>| Shifts {
         body: std::rc::Rc::new(move |k: ShiftK<T, S>| f(std::rc::Rc::new(move |a: A| k(crate::eff::Val::new(a))))),
-        resume: std::rc::Rc::new(move |k: &K<T, S>, v: crate::eff::Val| r.resume(k, v.take::<A>())),
+        resume: std::rc::Rc::new(move |k: &K<S, T>, v: crate::eff::Val| r.resume(k, v.take::<A>())),
     })
 }
 
@@ -236,15 +329,23 @@ pub fn shift0<S: 'static, T: 'static, A: Clone + Debug + 'static, R: Member<Shif
 pub fn shift<S: 'static, T: 'static, A: Clone + Debug + 'static, R: Member<Shifts<S, T>, Ix>, Ix>(
     f: impl Fn(std::rc::Rc<dyn Fn(A) -> Prog<S, T>>) -> Prog<S, Cons<Shifts<S, T>, T>> + 'static,
 ) -> Prog<A, R> {
-    shift0(move |k| f(k).handle(reset::<S, T>()))
+    shift0(move |k| f(k).handle(Shifts::<S, T>::reset()))
 }
 
-/// THE RESET of `Shifts<S, T>`: a shift's body given the rest up to it
-pub fn reset<S: 'static, T: 'static>() -> Handler<Shifts<S, T>, T, S, S> {
-    Handler::new(pure, |op: Shifts<S, T>, k| {
-        let resume = op.resume.clone();
-        (op.body)(std::rc::Rc::new(move |v| resume(&k, v)))
-    })
+impl<S: 'static, T: 'static> Shifts<S, T> {
+    /// THE RESET of `Shifts<S, T>`: a shift's body given the rest up to it
+    pub fn reset() -> Handler<Shifts<S, T>, S, S, T> {
+        Handler::new(pure, |op: Shifts<S, T>, k| {
+            let resume = op.resume.clone();
+            (op.body)(std::rc::Rc::new(move |v| resume(&k, v)))
+        })
+    }
+}
+
+/// the old name of [`Shifts::reset`]
+#[deprecated(note = "the family's name is `Shifts::reset`")]
+pub fn reset<S: 'static, T: 'static>() -> Handler<Shifts<S, T>, S, S, T> {
+    Shifts::reset()
 }
 
 // OVER THE WIRE: the standard effects' operations by name, their arguments a record
